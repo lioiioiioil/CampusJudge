@@ -15,6 +15,7 @@ import (
 
 	"github.com/lioiioiioil/CampusJudge/internal/app"
 	"github.com/lioiioiioil/CampusJudge/internal/store"
+	"github.com/lioiioiioil/CampusJudge/web"
 )
 
 func main() {
@@ -54,9 +55,14 @@ func run() error {
 	if bootstrap.Created {
 		fmt.Printf("Первый запуск CampusJudge\nЛогин преподавателя: %s\nПароль: %s\nКод тестовой группы: %s\nСохраните пароль: при следующем запуске он не выводится.\n", bootstrap.Username, bootstrap.Password, bootstrap.InviteCode)
 	}
+	mux := http.NewServeMux()
+	api := app.New(s).Handler()
+	mux.Handle("/api/", api)
+	mux.Handle("/healthz", api)
+	mux.Handle("/", web.Handler())
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           app.New(s).Handler(),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
