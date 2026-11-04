@@ -43,14 +43,26 @@ func run() error {
 			return errors.New("demo credentials are restricted to a loopback address")
 		}
 	}
-	bootstrap, err := app.Initialize(s, *demo)
+	bootstrap, err := app.Initialize(s, app.BootstrapOptions{
+		Demo:            *demo,
+		TeacherPassword: os.Getenv("CAMPUS_TEACHER_PASSWORD"),
+		Now:             time.Now(),
+	})
 	if err != nil {
 		return err
 	}
 	if bootstrap.Created {
 		fmt.Printf("Первый запуск CampusJudge\nЛогин преподавателя: %s\nПароль: %s\nКод тестовой группы: %s\nСохраните пароль: при следующем запуске он не выводится.\n", bootstrap.Username, bootstrap.Password, bootstrap.InviteCode)
 	}
-	server := &http.Server{Addr: *addr, Handler: app.New(s).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{
+		Addr:              *addr,
+		Handler:           app.New(s).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	failure := make(chan error, 1)

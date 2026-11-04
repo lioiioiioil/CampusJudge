@@ -3,12 +3,17 @@ package app
 import (
 	"crypto/rand"
 	"errors"
-	"os"
 	"time"
 
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 	"github.com/lioiioiioil/CampusJudge/internal/store"
 )
+
+type BootstrapOptions struct {
+	Demo            bool
+	TeacherPassword string
+	Now             time.Time
+}
 
 type Bootstrap struct {
 	Created    bool
@@ -17,47 +22,122 @@ type Bootstrap struct {
 	InviteCode string
 }
 
-// Initialize creates only the teacher and two explicitly labeled test works.
-// Existing teaching data is never overwritten by startup or the demo flag.
-func Initialize(s *store.Store, demo bool) (Bootstrap, error) {
+// Initialize creates a teacher and the two requested test works. Configuration
+// and time are explicit inputs; startup never replaces existing teaching data.
+func Initialize(s *store.Store, options BootstrapOptions) (Bootstrap, error) {
 	if len(s.Snapshot().Users) > 0 {
 		return Bootstrap{}, nil
 	}
-	password := os.Getenv("CAMPUS_TEACHER_PASSWORD")
-	if demo {
+	if options.Now.IsZero() {
+		return Bootstrap{}, errors.New("bootstrap time must be provided")
+	}
+	password := options.TeacherPassword
+	if options.Demo {
 		password = "campus-demo"
 	}
 	if password == "" {
 		password = rand.Text()
 	}
 	if len(password) < 8 || len(password) > 128 {
-		return Bootstrap{}, errors.New("CAMPUS_TEACHER_PASSWORD must contain 8–128 bytes")
+		return Bootstrap{}, errors.New("initial teacher password must contain 8–128 bytes")
+	}
+	encodedPassword, err := passwordHash(password)
+	if err != nil {
+		return Bootstrap{}, err
 	}
 	code := rand.Text()[:10]
-	if demo {
+	if options.Demo {
 		code = "DEMOCLASS"
 	}
-	teacher := model.User{ID: newID("user"), Name: "Преподаватель", Username: "teacher", Role: "teacher", PasswordHash: passwordHash(password)}
+	teacher := model.User{
+		ID:           newID("user"),
+		Name:         "Преподаватель",
+		Username:     "teacher",
+		Role:         "teacher",
+		PasswordHash: encodedPassword,
+	}
 	group := model.Group{ID: newID("group"), Name: "Тестовая группа", InviteCode: code}
-	sum := model.Problem{ID: newID("problem"), Title: "Сумма двух чисел", Statement: "Даны два целых числа a и b. Выведите их сумму.", InputFormat: "Два целых числа a и b, каждое от −1000 до 1000.", OutputFormat: "Одно целое число — сумма a и b.", TimeLimitMS: 2000, MemoryLimitMB: 256, Samples: []model.TestCase{{Input: "2 3\n", Output: "5\n"}}, Tests: []model.TestCase{{Input: "-5 8\n", Output: "3\n"}, {Input: "0 0\n", Output: "0\n"}}}
-	largest := model.Problem{ID: newID("problem"), Title: "Большее из двух", Statement: "Даны два целых числа. Выведите наибольшее из них.", InputFormat: "Два целых числа от −1000 до 1000.", OutputFormat: "Наибольшее из двух чисел.", TimeLimitMS: 2000, MemoryLimitMB: 256, Samples: []model.TestCase{{Input: "4 9\n", Output: "9\n"}}, Tests: []model.TestCase{{Input: "-3 -7\n", Output: "-3\n"}, {Input: "5 5\n", Output: "5\n"}}}
-	now := time.Now()
-	start := now.Add(-time.Minute)
-	end := now.Add(24 * time.Hour)
-	homework := model.Work{ID: newID("work"), Title: "Тестовая домашка", Description: "Пробное задание для знакомства с платформой. Его можно закрыть, когда подготовите свои материалы.", Kind: "homework", GroupIDs: []string{group.ID}, ProblemIDs: []string{sum.ID}, Status: "open", CreatedAt: now}
-	contest := model.Work{ID: newID("work"), Title: "Тестовый контест", Description: "Пробный контест с одной задачей. Решения проверяет преподаватель.", Kind: "contest", GroupIDs: []string{group.ID}, ProblemIDs: []string{largest.ID}, Status: "open", StartsAt: &start, EndsAt: &end, CreatedAt: now}
-	if err := s.Update(func(state *model.State) error {
-		state.Demo = demo
+	problems := initialProblems()
+	start := options.Now.Add(-time.Minute)
+	end := options.Now.Add(24 * time.Hour)
+	works := []model.Work{
+		{
+			ID:          newID("work"),
+			Title:       "Тестовая домашка",
+			Description: "Пробное задание для знакомства с платформой. Его можно закрыть, когда подготовите свои материалы.",
+			Kind:        "homework",
+			GroupIDs:    []string{group.ID},
+			ProblemIDs:  []string{problems[0].ID},
+			Status:      "open",
+			CreatedAt:   options.Now,
+		},
+		{
+			ID:          newID("work"),
+			Title:       "Тестовый контест",
+			Description: "Пробный контест с одной задачей. Решения проверяет преподаватель.",
+			Kind:        "contest",
+			GroupIDs:    []string{group.ID},
+			ProblemIDs:  []string{problems[1].ID},
+			Status:      "open",
+			StartsAt:    &start,
+			EndsAt:      &end,
+			CreatedAt:   options.Now,
+		},
+	}
+	created := false
+	err = s.Update(func(state *model.State) error {
+		if len(state.Users) > 0 {
+			return nil
+		}
+		state.Demo = options.Demo
 		state.Users = []model.User{teacher}
 		state.Groups = []model.Group{group}
 		state.Topics = []model.Topic{}
-		state.Problems = []model.Problem{sum, largest}
-		state.Works = []model.Work{homework, contest}
+		state.Problems = problems
+		state.Works = works
 		state.Submissions = []model.Submission{}
 		state.Sessions = []model.Session{}
+		created = true
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return Bootstrap{}, err
 	}
+	if !created {
+		return Bootstrap{}, nil
+	}
 	return Bootstrap{Created: true, Username: teacher.Username, Password: password, InviteCode: code}, nil
+}
+
+func initialProblems() []model.Problem {
+	return []model.Problem{
+		{
+			ID:            newID("problem"),
+			Title:         "Сумма двух чисел",
+			Statement:     "Даны два целых числа a и b. Выведите их сумму.",
+			InputFormat:   "Два целых числа a и b, каждое от −1000 до 1000.",
+			OutputFormat:  "Одно целое число — сумма a и b.",
+			TimeLimitMS:   2000,
+			MemoryLimitMB: 256,
+			Samples:       []model.TestCase{{Input: "2 3\n", Output: "5\n"}},
+			Tests: []model.TestCase{
+				{Input: "-5 8\n", Output: "3\n"},
+				{Input: "0 0\n", Output: "0\n"},
+			},
+		},
+		{
+			ID:            newID("problem"),
+			Title:         "Большее из двух",
+			Statement:     "Даны два целых числа. Выведите наибольшее из них.",
+			InputFormat:   "Два целых числа от −1000 до 1000.",
+			OutputFormat:  "Наибольшее из двух чисел.",
+			TimeLimitMS:   2000,
+			MemoryLimitMB: 256,
+			Samples:       []model.TestCase{{Input: "4 9\n", Output: "9\n"}},
+			Tests: []model.TestCase{
+				{Input: "-3 -7\n", Output: "-3\n"},
+				{Input: "5 5\n", Output: "5\n"},
+			},
+		},
+	}
 }

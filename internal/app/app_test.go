@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lioiioiioil/CampusJudge/internal/domain"
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 	"github.com/lioiioiioil/CampusJudge/internal/store"
 )
@@ -29,7 +30,7 @@ func setup(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Initialize(s, true); err != nil {
+	if _, err := Initialize(s, BootstrapOptions{Demo: true, Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	f := &fixture{t: t, app: New(s), store: s, path: path}
@@ -88,6 +89,12 @@ func TestMinimalSeedAndTeachingWorkflow(t *testing.T) {
 		t.Fatal("lesson URL was not saved")
 	}
 	homework := initial.Works[0]
+	f.request("POST", "/api/submissions", map[string]string{
+		"work_id":    homework.ID,
+		"problem_id": homework.ProblemIDs[0],
+		"language":   "go",
+		"source":     "package main",
+	}, f.teacher, http.StatusForbidden)
 	created := f.request("POST", "/api/works", map[string]any{"title": "После урока", "kind": "homework", "topic_id": topic.ID, "group_ids": homework.GroupIDs, "problem_ids": homework.ProblemIDs, "status": "draft"}, f.teacher, 201)
 	draft := decode[model.Work](t, created)
 	student, cookie := f.student("learner")
@@ -195,7 +202,7 @@ func TestContestTimeBoundariesAndScore(t *testing.T) {
 	third := decode[model.Submission](t, f.request("POST", "/api/submissions", payload, cookie, 201))
 	f.request("PATCH", "/api/submissions/"+third.ID, map[string]string{"verdict": "accepted"}, f.teacher, 200)
 	result := decode[struct {
-		Rows []standingRow `json:"rows"`
+		Rows []domain.StandingRow `json:"rows"`
 	}](t, f.request("GET", "/api/works/"+contest.ID+"/standings", nil, cookie, 200))
 	if len(result.Rows) != 1 || result.Rows[0].UserID != user.ID || result.Rows[0].Solved != 1 || result.Rows[0].Penalty != 30 {
 		t.Fatalf("expected one solved at minute 10 plus one 20-minute penalty: %+v", result.Rows)
@@ -221,4 +228,27 @@ func TestAuthenticationAndRequestProtection(t *testing.T) {
 	f.request("POST", "/api/register", map[string]string{"name": "Student", "username": "newstudent", "password": "student-password", "invite_code": "wrong"}, nil, 400)
 	f.request("POST", "/api/logout", map[string]any{}, f.teacher, 200)
 	f.request("GET", "/api/state", nil, f.teacher, 401)
+}
+
+func TestBootstrapDoesNotReplaceExistingClassroom(t *testing.T) {
+	f := setup(t)
+	student, _ := f.student("existingstudent")
+	before := f.store.Snapshot()
+	result, err := Initialize(f.store, BootstrapOptions{
+		TeacherPassword: "different-password",
+		Now:             time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Created {
+		t.Fatal("existing classroom was initialized again")
+	}
+	after := f.store.Snapshot()
+	if len(after.Users) != 2 || after.Users[1].ID != student.ID {
+		t.Fatal("existing student was replaced during startup")
+	}
+	if after.Users[0].PasswordHash != before.Users[0].PasswordHash || after.Works[0].ID != before.Works[0].ID {
+		t.Fatal("startup replaced credentials or test works")
+	}
 }

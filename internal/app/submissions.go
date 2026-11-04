@@ -1,17 +1,16 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/lioiioiioil/CampusJudge/internal/domain"
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 )
 
 func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) error {
-	if user.Role != "student" {
-		return fail(403, "Отправка решений доступна из аккаунта ученика")
-	}
 	var in struct {
 		WorkID    string `json:"work_id"`
 		ProblemID string `json:"problem_id"`
@@ -24,14 +23,8 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 	if len(strings.TrimSpace(in.Source)) == 0 || len(in.Source) > 256<<10 {
 		return fail(400, "Отправьте исходный код размером до 256 КБ")
 	}
-	languageOK := false
-	for _, l := range Languages {
-		if l["id"] == in.Language {
-			languageOK = true
-		}
-	}
-	if !languageOK {
-		return fail(400, "Выберите язык решения")
+	if !languageSupported(in.Language) {
+		return fail(http.StatusBadRequest, "Выберите язык решения")
 	}
 	submission := model.Submission{ID: newID("submission"), WorkID: in.WorkID, ProblemID: in.ProblemID, UserID: user.ID, Language: in.Language, Source: in.Source, Verdict: "pending", CreatedAt: a.now()}
 	if err := a.store.Update(func(s *model.State) error {
@@ -42,15 +35,15 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 				break
 			}
 		}
-		if work.ID == "" || !visibleWork(work, user) {
-			return fail(404, "Работа не найдена")
-		}
-		now := a.now()
-		if work.Status != "open" || !started(work, now) || (work.EndsAt != nil && !now.Before(*work.EndsAt)) {
-			return fail(403, "Приём решений закрыт или ещё не начался")
-		}
-		if !slices.Contains(work.ProblemIDs, in.ProblemID) {
-			return fail(400, "В этой работе нет выбранной задачи")
+		if err := domain.CanSubmit(work, user, in.ProblemID, a.now()); err != nil {
+			switch {
+			case errors.Is(err, domain.ErrNotFound):
+				return fail(http.StatusNotFound, err.Error())
+			case errors.Is(err, domain.ErrClosed), errors.Is(err, domain.ErrStudentOnly):
+				return fail(http.StatusForbidden, err.Error())
+			default:
+				return fail(http.StatusBadRequest, err.Error())
+			}
 		}
 		s.Submissions = append(s.Submissions, submission)
 		return nil

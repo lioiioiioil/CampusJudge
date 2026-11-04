@@ -19,7 +19,15 @@ type PublicUser struct {
 	GroupID  string `json:"group_id,omitempty"`
 }
 
-func (u User) Public() PublicUser { return PublicUser{u.ID, u.Name, u.Username, u.Role, u.GroupID} }
+func (u User) Public() PublicUser {
+	return PublicUser{
+		ID:       u.ID,
+		Name:     u.Name,
+		Username: u.Username,
+		Role:     u.Role,
+		GroupID:  u.GroupID,
+	}
+}
 
 type Group struct {
 	ID         string `json:"id"`

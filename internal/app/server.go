@@ -46,18 +46,18 @@ func (a *App) Handler() http.Handler {
 		}
 		writeJSON(w, 200, map[string]any{"user": user, "demo": a.store.Snapshot().Demo})
 	})
-	mux.HandleFunc("POST /api/login", a.handle(a.login, false, false))
-	mux.HandleFunc("POST /api/register", a.handle(a.register, false, false))
-	mux.HandleFunc("POST /api/logout", a.handle(a.logout, true, false))
-	mux.HandleFunc("GET /api/state", a.handle(a.state, true, false))
-	mux.HandleFunc("POST /api/groups", a.handle(a.createGroup, true, true))
-	mux.HandleFunc("POST /api/topics", a.handle(a.createTopic, true, true))
-	mux.HandleFunc("POST /api/problems", a.handle(a.createProblem, true, true))
-	mux.HandleFunc("POST /api/works", a.handle(a.createWork, true, true))
-	mux.HandleFunc("PATCH /api/works/{id}", a.handle(a.updateWork, true, true))
-	mux.HandleFunc("POST /api/submissions", a.handle(a.submit, true, false))
-	mux.HandleFunc("PATCH /api/submissions/{id}", a.handle(a.review, true, true))
-	mux.HandleFunc("GET /api/works/{id}/standings", a.handle(a.standings, true, false))
+	mux.HandleFunc("POST /api/login", a.handle(a.login, publicAccess))
+	mux.HandleFunc("POST /api/register", a.handle(a.register, publicAccess))
+	mux.HandleFunc("POST /api/logout", a.handle(a.logout, signedInAccess))
+	mux.HandleFunc("GET /api/state", a.handle(a.state, signedInAccess))
+	mux.HandleFunc("POST /api/groups", a.handle(a.createGroup, teacherAccess))
+	mux.HandleFunc("POST /api/topics", a.handle(a.createTopic, teacherAccess))
+	mux.HandleFunc("POST /api/problems", a.handle(a.createProblem, teacherAccess))
+	mux.HandleFunc("POST /api/works", a.handle(a.createWork, teacherAccess))
+	mux.HandleFunc("PATCH /api/works/{id}", a.handle(a.updateWork, teacherAccess))
+	mux.HandleFunc("POST /api/submissions", a.handle(a.submit, signedInAccess))
+	mux.HandleFunc("PATCH /api/submissions/{id}", a.handle(a.review, teacherAccess))
+	mux.HandleFunc("GET /api/works/{id}/standings", a.handle(a.standings, signedInAccess))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
@@ -73,12 +73,21 @@ func (a *App) Handler() http.Handler {
 	})
 }
 
+// Access policy is declared once at route registration; handlers cannot choose roles.
+type accessLevel uint8
+
+const (
+	publicAccess accessLevel = iota
+	signedInAccess
+	teacherAccess
+)
+
 type endpoint func(http.ResponseWriter, *http.Request, model.User) error
 
-func (a *App) handle(fn endpoint, auth, teacher bool) http.HandlerFunc {
+func (a *App) handle(fn endpoint, access accessLevel) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var u model.User
-		if auth {
+		if access != publicAccess {
 			var ok bool
 			u, ok = a.currentUser(r)
 			if !ok {
@@ -86,7 +95,7 @@ func (a *App) handle(fn endpoint, auth, teacher bool) http.HandlerFunc {
 				return
 			}
 		}
-		if teacher && u.Role != "teacher" {
+		if access == teacherAccess && u.Role != "teacher" {
 			writeJSON(w, 403, map[string]string{"error": "Доступно только преподавателю"})
 			return
 		}

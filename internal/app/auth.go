@@ -1,11 +1,8 @@
 package app
 
 import (
-	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -20,28 +17,6 @@ func newID(prefix string) string { return prefix + "_" + strings.ToLower(rand.Te
 func tokenHash(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
-}
-func passwordHash(password string) string {
-	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-	key, err := pbkdf2.Key(sha256.New, password, salt, 600000, 32)
-	if err != nil {
-		panic(err)
-	}
-	return base64.RawStdEncoding.EncodeToString(salt) + ":" + base64.RawStdEncoding.EncodeToString(key)
-}
-func passwordMatches(encoded, password string) bool {
-	parts := strings.Split(encoded, ":")
-	if len(parts) != 2 {
-		return false
-	}
-	salt, e1 := base64.RawStdEncoding.DecodeString(parts[0])
-	expected, e2 := base64.RawStdEncoding.DecodeString(parts[1])
-	if e1 != nil || e2 != nil || len(salt) != 16 || len(expected) != 32 {
-		return false
-	}
-	key, err := pbkdf2.Key(sha256.New, password, salt, 600000, 32)
-	return err == nil && subtle.ConstantTimeCompare(key, expected) == 1
 }
 func (a *App) currentUser(r *http.Request) (model.User, bool) {
 	c, err := r.Cookie(sessionCookie)

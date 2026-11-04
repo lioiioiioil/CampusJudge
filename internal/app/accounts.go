@@ -66,10 +66,14 @@ func (a *App) register(w http.ResponseWriter, r *http.Request, _ model.User) err
 	if len(in.Password) < 8 || len(in.Password) > 128 {
 		return fail(400, "Пароль должен содержать от 8 до 128 символов")
 	}
-	u := model.User{ID: newID("user"), Name: in.Name, Username: in.Username, Role: "student", PasswordHash: passwordHash(in.Password)}
+	encodedPassword, err := passwordHash(in.Password)
+	if err != nil {
+		return err
+	}
+	u := model.User{ID: newID("user"), Name: in.Name, Username: in.Username, Role: "student", PasswordHash: encodedPassword}
 	now := a.now()
 	token, session := newSession(u.ID, now)
-	err := a.store.Update(func(s *model.State) error {
+	err = a.store.Update(func(s *model.State) error {
 		for _, existing := range s.Users {
 			if existing.Username == u.Username {
 				return fail(409, "Такой логин уже занят")
