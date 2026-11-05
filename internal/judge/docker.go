@@ -71,6 +71,25 @@ func (runner *DockerRunner) Check(ctx context.Context) error {
 	if strings.TrimSpace(string(output.stdout)) != "linux" {
 		return errors.New("judge requires a Linux Docker daemon")
 	}
+	info, err := runner.execute(ctx, []string{"info", "--format", "{{json .}}"}, nil, 64*1024)
+	if err != nil {
+		return fmt.Errorf("cannot verify Docker resource controls: %w", err)
+	}
+	var limits struct {
+		CgroupVersion string `json:"CgroupVersion"`
+		Memory        bool   `json:"MemoryLimit"`
+		Swap          bool   `json:"SwapLimit"`
+		PIDs          bool   `json:"PidsLimit"`
+		CPUQuota      bool   `json:"CpuCfsQuota"`
+	}
+	if info.overflow || json.Unmarshal(info.stdout, &limits) != nil {
+		return errors.New("Docker returned invalid resource control information")
+	}
+	// Some daemons merely warn and ignore unsupported --memory/--pids-limit
+	// flags. Refuse startup rather than run even compilation without bounds.
+	if limits.CgroupVersion != "2" || !limits.Memory || !limits.Swap || !limits.PIDs || !limits.CPUQuota {
+		return errors.New("judge requires cgroup v2 with enforced memory, swap, PID and CPU quota limits")
+	}
 	if _, err := runner.execute(ctx, []string{"image", "inspect", runner.image, "--format", "{{.Id}}"}, nil, 4096); err != nil {
 		return fmt.Errorf("judge image is unavailable; build judge/Dockerfile first: %w", err)
 	}

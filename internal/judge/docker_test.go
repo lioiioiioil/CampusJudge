@@ -269,3 +269,69 @@ func TestPrivateResponseRequiresExactlyOneKnownDocument(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckRequiresAllResourceControlsBeforeAcceptingDaemon(t *testing.T) {
+	cases := []struct {
+		name        string
+		change      func(map[string]any)
+		invalidJSON bool
+		overflow    bool
+		infoError   bool
+		wantError   bool
+	}{
+		{name: "supported cgroup v2"},
+		{name: "cgroup v1", change: func(info map[string]any) { info["CgroupVersion"] = "1" }, wantError: true},
+		{name: "missing cgroup", change: func(info map[string]any) { delete(info, "CgroupVersion") }, wantError: true},
+		{name: "memory unavailable", change: func(info map[string]any) { info["MemoryLimit"] = false }, wantError: true},
+		{name: "swap unavailable", change: func(info map[string]any) { info["SwapLimit"] = false }, wantError: true},
+		{name: "PID control unavailable", change: func(info map[string]any) { info["PidsLimit"] = false }, wantError: true},
+		{name: "CPU quota unavailable", change: func(info map[string]any) { info["CpuCfsQuota"] = false }, wantError: true},
+		{name: "missing capability", change: func(info map[string]any) { delete(info, "MemoryLimit") }, wantError: true},
+		{name: "malformed daemon response", invalidJSON: true, wantError: true},
+		{name: "truncated daemon response", overflow: true, wantError: true},
+		{name: "daemon disconnected during inspection", infoError: true, wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := map[string]any{"CgroupVersion": "2", "MemoryLimit": true, "SwapLimit": true, "PidsLimit": true, "CpuCfsQuota": true, "UnrelatedDaemonField": "ignored"}
+			if tc.change != nil {
+				tc.change(info)
+			}
+			encoded, _ := json.Marshal(info)
+			if tc.invalidJSON {
+				encoded = []byte("not JSON")
+			}
+			checkedImage := false
+			runner := &DockerRunner{image: "image"}
+			runner.execute = func(_ context.Context, args []string, _ []byte, _ int) (commandOutput, error) {
+				switch args[0] {
+				case "version":
+					return commandOutput{stdout: []byte("linux\n")}, nil
+				case "info":
+					if tc.infoError {
+						return commandOutput{}, errors.New("disconnected")
+					}
+					return commandOutput{stdout: encoded, overflow: tc.overflow}, nil
+				case "image":
+					checkedImage = true
+					return commandOutput{stdout: []byte("image-id")}, nil
+				default:
+					t.Fatalf("Check started an unexpected command: %v", args)
+					return commandOutput{}, nil
+				}
+			}
+			if err := runner.Check(context.Background()); (err != nil) != tc.wantError {
+				t.Fatalf("Check error=%v, wantError=%v", err, tc.wantError)
+			}
+			if checkedImage == tc.wantError {
+				t.Fatal("unsupported resource controls did not stop startup before image acceptance")
+			}
+		})
+	}
+}
+
+func TestDockerIntegrationCheckOnly(t *testing.T) {
+	// integrationRunner checks the actual configured daemon and local image;
+	// this test intentionally starts no compiler or submitted program.
+	_, _ = integrationRunner(t)
+}
