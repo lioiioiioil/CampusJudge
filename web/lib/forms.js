@@ -111,7 +111,7 @@ function submission(fields, context) {
     problem_id: context.problemID,
     language: required(fields, 'language', 'Язык решения'),
     source,
-  }, 'Решение отправлено преподавателю', 'submissions');
+  }, 'Решение отправлено', 'submissions');
 }
 
 function topic(fields) {
@@ -131,7 +131,7 @@ function topic(fields) {
 function review(fields, context) {
   if (!context.id) throw new Error('Посылка не найдена. Откройте её заново.');
   const verdict = text(fields, 'verdict');
-  const allowed = ['accepted', 'wrong_answer', 'compilation_error', 'runtime_error', 'time_limit', 'memory_limit'];
+  const allowed = ['accepted', 'wrong_answer', 'compilation_error', 'runtime_error', 'time_limit', 'memory_limit', 'output_limit'];
   if (!allowed.includes(verdict)) throw new Error('Выберите результат проверки.');
   return command(`/api/submissions/${encodeURIComponent(context.id)}`, {
     verdict, feedback: text(fields, 'feedback'),

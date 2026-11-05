@@ -1,6 +1,6 @@
 import { esc, icon } from '../lib/format.js';
 import { pageNames, selectors, canVisit } from '../lib/state.js';
-import { brand, footer } from '../lib/components.js';
+import { brand, footer, themeToggle } from '../lib/components.js';
 
 export function renderLayout(snapshot, view, content) {
   const { teacher } = selectors(snapshot);
@@ -17,6 +17,7 @@ export function renderLayout(snapshot, view, content) {
       <div class="header-main">
         ${brand()}
         <div class="account">
+          ${themeToggle()}
           ${snapshot.user.name !== role ? `<span class="account-role">${role}</span>` : ''}
           <span class="account-name">${esc(snapshot.user.name)}</span>
           <button class="text-button" data-action="logout">Выйти</button>

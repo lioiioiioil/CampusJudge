@@ -1,8 +1,16 @@
 import { esc, icon, date } from './format.js';
-import { findByID, selectors, workPhase, verdictNames } from './state.js';
+import { currentTheme } from './theme.js';
+import { judgingBadge } from './judging.js';
+import { findByID, selectors, workPhase } from './state.js';
 
 export function brand() {
   return '<a href="#overview" class="brand" aria-label="CampusJudge — обзор">CampusJudge</a>';
+}
+
+export function themeToggle() {
+  return `<button class="text-button theme-toggle" data-action="theme" aria-label="Переключить светлую и тёмную тему">
+    <span aria-hidden="true">◐</span> <span data-theme-label>${currentTheme() === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</span>
+  </button>`;
 }
 
 export function empty(title, description, action = '', compact = false) {
@@ -41,9 +49,8 @@ export function phaseBadge(work) {
   return `<span class="badge ${color}">${label}</span>`;
 }
 
-export function verdictBadge(verdict) {
-  const color = verdict === 'accepted' ? 'green' : verdict === 'pending' ? 'amber' : 'red';
-  return `<span class="badge ${color}">${esc(verdictNames[verdict] || verdict)}</span>`;
+export function verdictBadge(verdict, judging) {
+  return judgingBadge({ verdict, judging });
 }
 
 export function workProgress(work, snapshot) {
@@ -96,7 +103,7 @@ export function submissionsTable(submissions, snapshot) {
       <div class="cell-subtitle">${esc(work(submission.work_id)?.title || 'Работа')}</div>
     </td>
     <td class="nowrap">${esc(language(submission.language))}</td>
-    <td>${verdictBadge(submission.verdict)}</td>
+    <td><span data-submission-verdict="${esc(submission.id)}">${verdictBadge(submission.verdict, submission.judging)}</span></td>
     <td class="muted nowrap">${esc(date(submission.created_at, true))}</td>
   </tr>`).join('');
   return `<div class="table-scroll"><table class="submission-table">

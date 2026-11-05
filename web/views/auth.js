@@ -1,9 +1,9 @@
-import { brand, field } from '../lib/components.js';
+import { brand, field, themeToggle } from '../lib/components.js';
 
 export function renderAuth({ authTab, demo }) {
   const register = authTab === 'register';
   return `<main class="auth-layout"><section class="auth-form-wrap">
-    ${brand()}
+    <div class="auth-header">${brand()}${themeToggle()}</div>
     <h1>${register ? 'Регистрация ученика' : 'Вход'}</h1>
     <p class="muted">${register ? 'Для регистрации нужен код группы от преподавателя.' : 'Войдите в учебное пространство.'}</p>
     <nav class="auth-tabs" aria-label="Вход и регистрация">

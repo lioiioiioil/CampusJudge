@@ -1,3 +1,6 @@
+import { createEditor } from './editor.js';
+import { toggleTheme } from './theme.js';
+import { hasActiveJudging, patchJudgingResults } from './judging.js';
 import { ApiError } from './api.js';
 import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
@@ -21,11 +24,14 @@ function readFields(form) {
 }
 
 /** Owns browser effects: event listeners, dialog, HTTP and explicit view transitions. */
-export function createController({ view, api, root, dialog, toastNode, render, renderContent }) {
+export function createController({ view, api, root, dialog, toastNode, render, renderContent,
+  editor = createEditor() }) {
   let toastTimer;
   let sessionGeneration = 0;
   let latestSnapshotRequest = 0;
   let sessionChange = Promise.resolve();
+  let judgeTimer = null;
+  let pollErrorShown = false;
   const isCurrent = generation => generation === sessionGeneration;
 
   // Cookie changes are ordered as HTTP effects: a late Set-Cookie from an old
@@ -45,7 +51,35 @@ export function createController({ view, api, root, dialog, toastNode, render, r
   }
 
   function closeModal() {
+    const form = dialog.querySelector?.('form[data-form="submission"]');
+    if (form && view.snapshot) editor.save(form, view.snapshot);
     dialog.close();
+  }
+
+  function stopPolling() {
+    clearTimeout(judgeTimer);
+    judgeTimer = null;
+  }
+
+  function schedulePolling() {
+    if (!hasActiveJudging(view.snapshot)) { stopPolling(); return; }
+    if (judgeTimer !== null) return;
+    const generation = sessionGeneration;
+    judgeTimer = setTimeout(async () => {
+      judgeTimer = null;
+      try {
+        await refresh(undefined, generation, { quiet: true });
+      } catch (error) {
+        if (!isCurrent(generation)) return;
+        if (error instanceof ApiError && error.status === 401) reportError(error, generation);
+        else if (!pollErrorShown) {
+          pollErrorShown = true;
+          toast('Результаты пока не обновляются: нет связи с сервером.', true);
+        }
+      } finally {
+        if (isCurrent(generation)) schedulePolling();
+      }
+    }, 1200);
   }
 
   function openModal(spec) {
@@ -59,6 +93,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     </div><div class="modal-body">${spec.body}</div>`;
     if (!dialog.open) dialog.showModal();
     dialog.scrollTop = 0;
+    editor.mount(dialog.querySelector?.('form[data-form="submission"]'), view.snapshot);
   }
 
   function updateHash() {
@@ -69,8 +104,9 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     if (!isCurrent(generation)) return;
     if (error instanceof ApiError && error.status === 401) {
       sessionGeneration++;
-      resetSession(view);
+      stopPolling();
       closeModal();
+      resetSession(view);
       updateHash();
       render();
       toast('Сессия завершилась. Войдите снова.', true);
@@ -86,14 +122,33 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     </div></div>`;
   }
 
-  async function refresh(options, generation = sessionGeneration) {
+  async function refresh(options, generation = sessionGeneration, { quiet = false } = {}) {
     const request = ++latestSnapshotRequest;
     const ownsResult = () => isCurrent(generation) && request === latestSnapshotRequest;
     try {
       const snapshot = await api.snapshot();
       if (!ownsResult()) return false;
+      if (view.snapshot && view.snapshot.user.id !== snapshot.user.id) {
+        // Another tab may replace the shared cookie. The old editor must leave
+        // under its original identity before any subsequent input can save a draft.
+        closeModal();
+        dialog.innerHTML = '';
+        sessionGeneration++;
+        stopPolling();
+        resetSession(view);
+        acceptSnapshot(view, snapshot, { newSession: true });
+        updateHash();
+        render();
+        schedulePolling();
+        return false;
+      }
       acceptSnapshot(view, snapshot, options);
-      render();
+      pollErrorShown = false;
+      if (quiet) {
+        renderContent();
+        patchJudgingResults(dialog, view.snapshot);
+      } else render();
+      schedulePolling();
       return true;
     } catch (error) {
       if (!ownsResult()) return false;
@@ -103,6 +158,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
 
   async function start() {
     const generation = ++sessionGeneration;
+    stopPolling();
     try {
       await sessionChange.catch(() => {});
       if (!isCurrent(generation)) return;
@@ -140,6 +196,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
       authenticating = Boolean(command.auth);
       if (authenticating) {
         generation = ++sessionGeneration;
+        stopPolling();
         resetSession(view);
       }
       const send = () => api.request(command.path, { method: command.method, body: command.body });
@@ -150,13 +207,21 @@ export function createController({ view, api, root, dialog, toastNode, render, r
       }
       if (!isCurrent(generation)) return;
       saved = true;
-      closeModal();
-      resetFilters(view);
-      if (!await refresh({ newSession: authenticating }, generation)) return;
-      if (command.page) navigate(view, command.page);
-      updateHash();
-      render();
-      toast(command.message);
+      if (form.dataset.form === 'submission') {
+        editor.save(form, view.snapshot);
+        await refresh(undefined, generation, { quiet: true });
+        if (!isCurrent(generation)) return;
+        editor.selectTab(form, 'result');
+        toast(command.message);
+      } else {
+        closeModal();
+        resetFilters(view);
+        if (!await refresh({ newSession: authenticating }, generation)) return;
+        if (command.page) navigate(view, command.page);
+        updateHash();
+        render();
+        toast(command.message);
+      }
     } catch (error) {
       if (!isCurrent(generation)) return;
       if (error instanceof ApiError && error.status === 401 && (saved || !authenticating)) {
@@ -219,6 +284,16 @@ export function createController({ view, api, root, dialog, toastNode, render, r
 
   const actions = {
     'retry-init': start,
+    theme: () => {
+      const theme = toggleTheme();
+      for (const label of document.querySelectorAll?.('[data-theme-label]') || []) {
+        label.textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+      }
+    },
+    'editor-tab': element => editor.selectTab(element.closest('form'), element.dataset.tab),
+    'insert-template': element => editor.insertTemplate(element.closest('form'), view.snapshot),
+    'confirm-template': element => editor.insertTemplate(element.closest('form'), view.snapshot, { replace: true }),
+    'cancel-template': element => { element.closest('form').querySelector('[data-template-confirm]').hidden = true; },
     menu: () => root.querySelector('.shell')?.classList.toggle('menu-open'),
     'close-modal': closeModal,
     'auth-tab': element => { view.authTab = element.dataset.value; render(); },
@@ -234,6 +309,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     logout: async () => {
       // Invalidate reads at intent time: a response may arrive while logout is pending.
       sessionGeneration++;
+      stopPolling();
       closeModal();
       resetSession(view);
       updateHash();
@@ -294,14 +370,11 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     try {
       const source = await file.text();
       if (!isCurrent(generation) || !form.isConnected) return;
-      form.elements.source.value = source;
       const extension = file.name.split('.').pop().toLowerCase();
       const languages = { py: 'python', go: 'go', cpp: 'cpp', cc: 'cpp', c: 'c', java: 'java',
         js: 'javascript', rs: 'rust', kt: 'kotlin', cs: 'csharp', pas: 'pascal' };
       const language = languages[extension];
-      if (language && [...form.elements.language.options].some(option => option.value === language)) {
-        form.elements.language.value = language;
-      }
+      editor.importSource(form, view.snapshot, source, language);
     } catch {
       if (isCurrent(generation)) toast('Не удалось прочитать файл.', true);
     }
@@ -318,22 +391,51 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     });
     document.addEventListener('input', event => {
       if (event.target.id === 'global-search') { view.search = event.target.value; renderContent(); }
+      if (event.target.matches?.('textarea.code')) editor.save(event.target.closest('form'), view.snapshot);
     });
     document.addEventListener('change', event => {
       if (event.target.id === 'group-filter') { view.groupFilter = event.target.value; render(); }
       if (event.target.id === 'source-file') uploadSource(event.target);
+      if (event.target.name === 'language' && event.target.closest('form')?.dataset.form === 'submission') {
+        editor.changeLanguage(event.target.closest('form'), view.snapshot);
+      }
     });
     document.addEventListener('keydown', event => {
       const field = event.target;
+      if (field.matches?.('[data-action="editor-tab"]') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+        const form = field.closest('form');
+        const tab = field.dataset.tab === 'code' ? 'result' : 'code';
+        editor.selectTab(form, tab);
+        form.querySelector(`[data-action="editor-tab"][data-tab="${tab}"]`)?.focus();
+      }
       if (event.key === 'Tab' && field.matches('textarea.code')) {
         event.preventDefault();
         field.setRangeText('    ', field.selectionStart, field.selectionEnd, 'end');
+        editor.save(field.closest('form'), view.snapshot);
       }
     });
     dialog.addEventListener('click', event => {
       if (event.target !== dialog) return;
       const box = dialog.getBoundingClientRect();
       if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeModal();
+    });
+    window.addEventListener('pagehide', () => {
+      const form = dialog.querySelector?.('form[data-form="submission"]');
+      if (form && view.snapshot) editor.save(form, view.snapshot);
+      stopPolling();
+    });
+    window.addEventListener('pageshow', async event => {
+      if (!event.persisted || !view.snapshot) return;
+      const generation = sessionGeneration;
+      stopPolling();
+      try {
+        await refresh(undefined, generation, { quiet: true });
+      } catch (error) {
+        reportError(error, generation);
+      } finally {
+        if (isCurrent(generation)) schedulePolling();
+      }
     });
     window.addEventListener('hashchange', () => {
       if (view.snapshot && navigate(view, location.hash.slice(1))) render();

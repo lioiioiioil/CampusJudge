@@ -1,5 +1,6 @@
+import { judgingResult } from '../lib/judging.js';
 import { esc, icon, date, plural, safeLesson } from '../lib/format.js';
-import { selectors, findByID, workPhase, verdictNames, standingsMark } from '../lib/state.js';
+import { selectors, findByID, workPhase, verdictNames, standingsMark, latestSubmission } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
   workTable, workProgress, submissionsTable } from '../lib/components.js';
 
@@ -61,7 +62,7 @@ export function newProblemModal() {
       <div class="section-label">Скрытые тесты
         <button type="button" class="text-button" data-action="add-test" data-kind="hidden">${icon('plus', 13)} Добавить</button>
       </div>
-      <p class="help-text">Сохраняются для проверки. Сейчас результаты выставляет преподаватель вручную.</p>
+      <p class="help-text">Скрытые тесты используются при проверке и не показываются ученикам.</p>
       <div data-test-list="hidden">${testPair('hidden')}</div>
       ${formFooter('Добавить задачу')}
     </form>`,
@@ -168,7 +169,7 @@ export function workModal(id, snapshot) {
       <thead><tr><th>#</th><th>Задача</th><th>Ограничения</th><th>Результат</th></tr></thead>
       <tbody>${item.problem_ids.map((id, index) => workProblemRow(item, id, index, snapshot)).join('')}</tbody>
     </table></div>
-    ${!teacher() ? `<p class="help-text work-progress-note">Ваш прогресс: ${esc(progress.caption)}. Решения проверяются преподавателем.</p>` : ''}
+    ${!teacher() ? `<p class="help-text work-progress-note">Ваш прогресс: ${esc(progress.caption)}. Результаты появляются после проверки.</p>` : ''}
     <div class="detail-actions">
       ${item.kind === 'contest' ? button('standings', 'Таблица результатов', 'trophy', '', `data-id="${esc(item.id)}"`) : ''}
       ${teacher() ? item.status !== 'open'
@@ -202,28 +203,45 @@ function statementHTML(problem) {
     ${problem.samples?.length ? `<h3 class="statement-heading">Примеры</h3>${samplesHTML(problem.samples)}` : ''}`;
 }
 
-function submissionForm(problem, work, languages) {
-  const options = languages.map(language => `<option value="${esc(language.id)}">${esc(language.name)}</option>`).join('');
-  return `<h3 class="statement-heading">Отправить решение</h3>
-    <div class="alert blue">${icon('info', 15)}
-      <span>Ручная проверка: решение проверит преподаватель.</span>
+function submissionForm(problem, work, snapshot) {
+  const languages = snapshot.languages;
+  const options = languages.map(language => `<option value="${esc(language.id)}">${esc(language.name)}${language.automatic ? '' : ' · вручную'}</option>`).join('');
+  const latest = latestSubmission(snapshot.submissions, item => item.user_id === snapshot.user.id
+    && item.work_id === work.id && item.problem_id === problem.id);
+  return `<form data-form="submission" data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
+    <div class="workspace-tabbar" role="tablist" aria-label="Решение и результат">
+      <button type="button" class="workspace-tab active" data-action="editor-tab" data-tab="code" id="editor-code-tab" role="tab" aria-controls="editor-code-panel" aria-selected="true">Код</button>
+      <button type="button" class="workspace-tab" data-action="editor-tab" data-tab="result" id="editor-result-tab" role="tab" aria-controls="editor-result-panel" aria-selected="false" tabindex="-1">Результат</button>
     </div>
-    <form data-form="submission" data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
-      <label class="form-field"><span class="form-label">Язык решения</span>
-        <select class="input" name="language">${options}
-          ${!languages.some(language => language.id === 'other') ? '<option value="other">Другой язык</option>' : ''}
-        </select>
+    <div data-editor-panel="code" id="editor-code-panel" role="tabpanel" aria-labelledby="editor-code-tab" class="editor-panel">
+      <div class="editor-toolbar">
+        <label><span class="sr-only">Язык решения</span><select class="input" name="language">${options}
+          ${!languages.some(language => language.id === 'other') ? '<option value="other">Другой язык · вручную</option>' : ''}
+        </select></label>
+        <button type="button" class="text-button" data-action="insert-template">Вставить шаблон</button>
+      </div>
+      <p class="language-support" data-language-support></p>
+      <div class="template-confirm" data-template-confirm hidden>
+        <p>Заменить текущий код шаблоном?</p>
+        <button type="button" class="btn small" data-action="confirm-template">Заменить</button>
+        <button type="button" class="text-button" data-action="cancel-template">Отмена</button>
+      </div>
+      <label class="form-field source-field"><span class="sr-only">Исходный код</span>
+        <textarea class="input code" name="source" spellcheck="false" aria-label="Исходный код решения"
+          placeholder="Введите решение или загрузите файл…"></textarea>
       </label>
-      <label class="upload">${icon('upload', 14)} Загрузить файл
-        <input type="file" id="source-file" aria-label="Загрузить исходный код из файла">
-      </label>
-      <label class="form-field"><span class="form-label">Исходный код</span>
-        <textarea class="input code" name="source" required spellcheck="false" aria-label="Исходный код решения"
-          placeholder="Вставьте код решения или загрузите файл…"></textarea>
-        <span class="form-hint">До 128 КБ. Можно отправить несколько попыток.</span>
-      </label>
-      ${formFooter('Отправить решение')}
-    </form>`;
+      <div class="editor-bottomline">
+        <label class="upload"><span>Загрузить файл</span><input type="file" id="source-file" aria-label="Загрузить исходный код из файла"></label>
+        <span data-draft-status class="form-hint">До 128 КБ</span>
+      </div>
+    </div>
+    <div data-editor-panel="result" id="editor-result-panel" role="tabpanel" aria-labelledby="editor-result-tab" class="editor-result-panel" hidden>
+      <div data-editor-result data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
+        ${latest ? judgingResult(latest) : '<p class="help-text">Отправьте решение, чтобы увидеть результат проверки.</p>'}
+      </div>
+    </div>
+    ${formFooter('Отправить решение')}
+  </form>`;
 }
 
 export function problemModal(id, workID, snapshot) {
@@ -235,8 +253,11 @@ export function problemModal(id, workID, snapshot) {
   return {
     title: task.title, subtitle: assignment?.title || 'Предпросмотр условия', wide: true,
     body: `<div class="${canSolve ? 'problem-workspace' : 'problem-preview'}">
-        <section class="problem-condition" aria-label="Условие задачи">${statementHTML(task)}</section>
-        ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot.languages)}</section>` : ''}
+        <section class="problem-condition" aria-label="Условие задачи">
+          <div class="workspace-tabbar"><span class="workspace-tab active">Условие</span></div>
+          <div class="condition-body">${statementHTML(task)}</div>
+        </section>
+        ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot)}</section>` : ''}
       </div>
       ${teacher() && task.tests?.length ? `<hr><h3 class="statement-heading">Скрытые тесты
         <span class="count-label">Видны только вам</span></h3>${samplesHTML(task.tests, true)}` : ''}`,
@@ -248,34 +269,32 @@ export function submissionModal(id, snapshot) {
   const submission = findByID(snapshot.submissions, id);
   if (!submission) return null;
   const author = user(submission.user_id);
-  const options = Object.entries(verdictNames).filter(([value]) => value !== 'pending')
+  const options = Object.entries(verdictNames).filter(([value]) => !['pending', 'judge_error'].includes(value))
     .map(([value, label]) => `<option value="${value}"${submission.verdict === value ? ' selected' : ''}>${label}</option>`).join('');
   return {
     title: problem(submission.problem_id)?.title || 'Посылка', subtitle: work(submission.work_id)?.title || 'Решение ученика', wide: true,
     body: `<div class="submission-summary">
       <div><strong>${esc(author.name)}</strong>
         <span class="muted"> · ${esc(date(submission.created_at, true))} · ${esc(language(submission.language))}</span>
-      </div>${verdictBadge(submission.verdict)}
+      </div><span data-submission-verdict="${esc(submission.id)}">${verdictBadge(submission.verdict, submission.judging)}</span>
     </div>
     <div class="${teacher() ? 'review-workspace' : 'submission-result'}">
       <section class="review-source" aria-label="Исходный код">
         <h3>Исходный код</h3><pre class="source-preview">${esc(submission.source)}</pre>
       </section>
       ${teacher() ? `<section class="review-form"><h3>Проверка</h3>
+        ${judgingResult(submission)}
         <form data-form="review" data-id="${esc(submission.id)}">
           <label class="form-field"><span class="form-label">Результат проверки</span>
             <select class="input" name="verdict" required>
-              <option value="" disabled${submission.verdict === 'pending' ? ' selected' : ''}>Выберите результат</option>
+              <option value="" disabled${['pending', 'judge_error'].includes(submission.verdict) ? ' selected' : ''}>Выберите результат</option>
               ${options}
             </select>
           </label>
           ${field('Комментарий для ученика', 'feedback', { type: 'textarea', value: submission.feedback })}
           ${formFooter('Сохранить результат')}
         </form>
-      </section>` : `<section class="review-feedback"><h3>Проверка</h3>
-        <p class="help-text">${submission.verdict === 'pending' ? 'Решение ожидает проверки преподавателем.' : 'Результат выставлен преподавателем.'}</p>
-        ${submission.feedback ? `<div class="feedback">${esc(submission.feedback)}</div>` : ''}
-      </section>`}
+      </section>` : `<section class="review-feedback"><h3>Проверка</h3>${judgingResult(submission)}</section>`}
     </div>`,
   };
 }
@@ -300,7 +319,7 @@ export function standingsModal(workID, rows, snapshot) {
   return {
     title: 'Таблица результатов', subtitle: contest.title, wide: true,
     body: `<p class="help-text standings-note">Сначала число решённых задач, затем штрафное время.
-      Результаты обновляются после проверки преподавателем.</p>
+      Результаты обновляются после проверки.</p>
       <div class="panel">${rows.length ? `<div class="table-scroll"><table>
         <thead><tr><th>#</th><th>Участник</th>${problemHeaders}<th>Решено</th><th>Штраф</th></tr></thead>
         <tbody>${tableRows}</tbody>

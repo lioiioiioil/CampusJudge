@@ -7,8 +7,9 @@
  * @typedef {{input:string, output:string}} TestCase
  * @typedef {{id:string, title:string, statement:string, input_format:string, output_format:string, time_limit_ms:number, memory_limit_mb:number, samples:TestCase[], tests?:TestCase[]}} Problem
  * @typedef {{id:string, title:string, description:string, kind:'homework'|'contest', status:'draft'|'open'|'closed', topic_id:string, group_ids:string[], problem_ids:string[], starts_at?:string, ends_at?:string, created_at:string}} Work
- * @typedef {{id:string, user_id:string, work_id:string, problem_id:string, language:string, source:string, verdict:string, feedback:string, created_at:string, judged_at?:string}} Submission
- * @typedef {{user:User, users:User[], groups:Group[], topics:Topic[], problems:Problem[], works:Work[], submissions:Submission[], languages:{id:string,name:string}[], demo:boolean}} Snapshot
+ * @typedef {{status:'queued'|'running'|'done'|'error', passed_tests:number, total_tests:number, failed_test?:number, time_ms?:number, compile_output?:string, error?:string}} Judging
+ * @typedef {{id:string, user_id:string, work_id:string, problem_id:string, language:string, source:string, verdict:string, feedback:string, created_at:string, judged_at?:string, judging?:Judging}} Submission
+ * @typedef {{user:User, users:User[], groups:Group[], topics:Topic[], problems:Problem[], works:Work[], submissions:Submission[], languages:{id:string,name:string,automatic:boolean,template:string}[], judging_mode:'automatic'|'manual', demo:boolean}} Snapshot
  */
 export const pageNames = Object.freeze({
   overview: 'Обзор',
@@ -27,6 +28,8 @@ export const verdictNames = Object.freeze({
   runtime_error: 'Ошибка выполнения',
   time_limit: 'Лимит времени',
   memory_limit: 'Лимит памяти',
+  output_limit: 'Лимит вывода',
+  judge_error: 'Ошибка проверки',
 });
 
 export function createViewState() {
@@ -111,4 +114,22 @@ export function matchesSearch(value, search) {
 export function standingsMark(result) {
   if (result?.solved) return `+${result.attempts > 0 ? result.attempts : ''}`;
   return result?.attempts ? `−${result.attempts}` : '·';
+}
+
+/** RFC3339 fractions have variable precision; equal JavaScript milliseconds use
+ * the last storage arrival rather than a lexical timestamp comparison.
+ */
+export function latestSubmission(submissions, matches = () => true) {
+  let latest = null;
+  let latestTime = -Infinity;
+  for (const submission of submissions) {
+    if (!matches(submission)) continue;
+    const parsed = Date.parse(submission.created_at);
+    const time = Number.isNaN(parsed) ? -Infinity : parsed;
+    if (latest === null || time >= latestTime) {
+      latest = submission;
+      latestTime = time;
+    }
+  }
+  return latest;
 }

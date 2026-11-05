@@ -1,3 +1,4 @@
+import { initializeTheme } from './lib/theme.js';
 import { createAPI } from './lib/api.js';
 import { createViewState } from './lib/state.js';
 import { createController } from './lib/actions.js';
@@ -6,6 +7,8 @@ import { renderAuth } from './views/auth.js';
 import { renderLayout } from './views/layout.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderWorks, renderTopics, renderSubmissions, renderStudents } from './views/pages.js';
+
+initializeTheme();
 
 const root = document.getElementById('app');
 const view = createViewState();
