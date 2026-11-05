@@ -1,16 +1,12 @@
-import { esc, icon, initials, date, plural } from './format.js';
+import { esc, icon, date } from './format.js';
 import { findByID, selectors, workPhase, verdictNames } from './state.js';
 
 export function brand() {
-  return `<a href="#overview" class="brand" aria-label="CampusJudge — обзор">
-    <span class="brand-mark">${icon('code', 22)}</span>
-    <span class="brand-word">campus<span>judge</span></span>
-  </a>`;
+  return '<a href="#overview" class="brand" aria-label="CampusJudge — обзор">CampusJudge</a>';
 }
 
 export function empty(title, description, action = '', compact = false) {
   return `<div class="empty${compact ? ' compact' : ''}">
-    <div class="empty-icon">${icon('layers', 22)}</div>
     <h3>${esc(title)}</h3><p>${esc(description)}</p>${action}
   </div>`;
 }
@@ -22,10 +18,9 @@ export function button(action, label, symbol = 'plus', variant = 'primary', attr
   </button>`;
 }
 
-export function pageHeading(title, description, action = '', eyebrow = '') {
+export function pageHeading(title, description, action = '') {
   return `<div class="page-heading">
     <div>
-      ${eyebrow ? `<div class="eyebrow">${esc(eyebrow)}</div>` : ''}
       <h1>${esc(title)}</h1><p class="page-description">${esc(description)}</p>
     </div>
     ${action ? `<div class="heading-actions">${action}</div>` : ''}
@@ -33,10 +28,7 @@ export function pageHeading(title, description, action = '', eyebrow = '') {
 }
 
 export function footer() {
-  return `<footer class="footer">
-    <span>CampusJudge · место, где теория становится практикой</span>
-    <span>${icon('server', 12)} Локальное пространство</span>
-  </footer>`;
+  return '<footer class="footer">CampusJudge · Учебные задания и контесты</footer>';
 }
 
 export function phaseBadge(work) {
@@ -46,15 +38,12 @@ export function phaseBadge(work) {
     scheduled: ['blue', 'Скоро'], finished: ['gray', 'Завершено'], open: ['green', 'Открыто'],
   };
   const [color, label] = labels[phase];
-  return `<span class="badge ${color}">
-    ${phase === 'open' ? '<i class="dot"></i>' : ''}${label}
-  </span>`;
+  return `<span class="badge ${color}">${label}</span>`;
 }
 
 export function verdictBadge(verdict) {
   const color = verdict === 'accepted' ? 'green' : verdict === 'pending' ? 'amber' : 'red';
-  const symbol = verdict === 'accepted' ? icon('check', 10) : verdict === 'pending' ? icon('clock', 10) : '';
-  return `<span class="badge ${color}">${symbol}${esc(verdictNames[verdict] || verdict)}</span>`;
+  return `<span class="badge ${color}">${esc(verdictNames[verdict] || verdict)}</span>`;
 }
 
 export function workProgress(work, snapshot) {
@@ -71,55 +60,47 @@ export function workProgress(work, snapshot) {
   return { done: complete, total: students.length, caption: students.length ? `${complete} из ${students.length} завершили` : 'Пока нет участников' };
 }
 
-export function workCard(work, snapshot) {
+function workRow(work, snapshot) {
   const { teacher, topic } = selectors(snapshot);
   const progress = workProgress(work, snapshot);
-  const members = snapshot.users.filter(user => user.role === 'student' && work.group_ids.includes(user.group_id));
   const groups = work.group_ids.map(id => findByID(snapshot.groups, id)?.name).filter(Boolean);
-  const topicTitle = topic(work.topic_id)?.title || (work.kind === 'contest' ? 'Учебный контест' : 'Самостоятельная практика');
-  return `<article class="work-card">
-    <div class="work-card-top">
-      <span class="work-card-type">${icon(work.kind === 'contest' ? 'trophy' : 'book', 12)}${esc(topicTitle)}</span>
-      ${phaseBadge(work)}
-    </div>
-    <button class="work-card-title" data-action="work" data-id="${esc(work.id)}">${esc(work.title)}</button>
-    <p class="work-card-desc">${esc(work.description || 'Откройте работу, чтобы посмотреть задачи и условия.')}</p>
-    <div class="work-card-meta">
-      <span>${icon('file', 12)}${plural(work.problem_ids.length, 'задача', 'задачи', 'задач')}</span>
-      <span>${icon('calendar', 12)}${work.ends_at ? `До ${esc(date(work.ends_at, true))}` : 'Без срока'}</span>
-      ${teacher() ? `<span>${icon('users', 12)}${esc(groups.join(', '))}</span>` : ''}
-    </div>
-    <div class="work-card-footer">
-      <div class="work-progress">
-        <progress class="progress-track" max="${Math.max(1, progress.total)}" value="${progress.done}" aria-label="Прогресс работы"></progress>
-        <span class="progress-caption">${progress.caption}</span>
-      </div>
-      ${teacher() && members.length ? `<div class="avatars" aria-label="${members.length} участников">
-        ${members.slice(0, 3).map(user => `<span class="mini-avatar" title="${esc(user.name)}">${esc(initials(user.name))}</span>`).join('')}
-      </div>` : ''}
-      <button class="text-button" data-action="work" data-id="${esc(work.id)}">Открыть ${icon('arrow', 13)}</button>
-    </div>
-  </article>`;
+  const topicTitle = topic(work.topic_id)?.title;
+  return `<tr>
+    <td class="work-name">
+      <button class="row-link" data-action="work" data-id="${esc(work.id)}">${esc(work.title)}</button>
+      <div class="cell-subtitle">${work.kind === 'contest' ? 'Контест' : 'Домашнее задание'}${topicTitle ? ` · ${esc(topicTitle)}` : ''}</div>
+    </td>
+    ${teacher() ? `<td>${esc(groups.join(', ') || '—')}</td>` : ''}
+    <td class="number">${work.problem_ids.length}</td>
+    <td class="nowrap">${work.ends_at ? esc(date(work.ends_at, true)) : 'Без срока'}</td>
+    <td>${phaseBadge(work)}</td>
+    <td class="muted">${esc(progress.caption)}</td>
+  </tr>`;
+}
+
+export function workTable(works, snapshot) {
+  const { teacher } = selectors(snapshot);
+  return `<div class="table-scroll"><table class="work-table">
+    <thead><tr><th>Название / тема</th>${teacher() ? '<th>Группа</th>' : ''}
+      <th class="number">Задачи</th><th>Срок</th><th>Статус</th><th>Прогресс</th>
+    </tr></thead>
+    <tbody>${works.map(work => workRow(work, snapshot)).join('')}</tbody>
+  </table></div>`;
 }
 
 export function submissionsTable(submissions, snapshot) {
   const { teacher, user, work, problem, language } = selectors(snapshot);
   const rows = submissions.map(submission => `<tr>
-    ${teacher() ? `<td><div class="student-cell">
-      <span class="avatar">${esc(initials(user(submission.user_id).name))}</span>
-      <span class="cell-title">${esc(user(submission.user_id).name)}</span>
-    </div></td>` : ''}
-    <td><button class="row-link" data-action="submission" data-id="${esc(submission.id)}">
-      <div class="cell-title">${esc(problem(submission.problem_id)?.title || 'Задача')}</div>
+    ${teacher() ? `<td>${esc(user(submission.user_id).name)}</td>` : ''}
+    <td><button class="row-link" data-action="submission" data-id="${esc(submission.id)}">${esc(problem(submission.problem_id)?.title || 'Задача')}</button>
       <div class="cell-subtitle">${esc(work(submission.work_id)?.title || 'Работа')}</div>
-    </button></td>
-    <td><span class="language-tag">${esc(language(submission.language))}</span></td>
+    </td>
+    <td class="nowrap">${esc(language(submission.language))}</td>
     <td>${verdictBadge(submission.verdict)}</td>
     <td class="muted nowrap">${esc(date(submission.created_at, true))}</td>
-    <td><button class="icon-btn" data-action="submission" data-id="${esc(submission.id)}" aria-label="Открыть решение">${icon('chevron', 14)}</button></td>
   </tr>`).join('');
-  return `<div class="table-scroll"><table>
-    <thead><tr>${teacher() ? '<th>Ученик</th>' : ''}<th>Задача</th><th>Язык</th><th>Результат</th><th>Отправлено</th><th></th></tr></thead>
+  return `<div class="table-scroll"><table class="submission-table">
+    <thead><tr>${teacher() ? '<th>Ученик</th>' : ''}<th>Задача / работа</th><th>Язык</th><th>Результат</th><th>Отправлено</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }

@@ -1,7 +1,7 @@
-import { esc, icon, initials, date, plural, safeLesson } from '../lib/format.js';
+import { esc, icon, date, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, verdictNames, standingsMark } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
-  workCard, workProgress, submissionsTable } from '../lib/components.js';
+  workTable, workProgress, submissionsTable } from '../lib/components.js';
 
 /** @typedef {{title:string, subtitle:string, body:string, wide?:boolean}} ModalSpec */
 
@@ -123,28 +123,24 @@ export function topicModal(id, snapshot) {
       ${lessonURL ? `<a class="btn soft" href="${esc(lessonURL)}" target="_blank" rel="noopener noreferrer">
         ${icon('link', 15)} Открыть занятие
       </a><hr>` : ''}
-      <div class="work-list">${works.length ? works.map(work => workCard(work, snapshot)).join('')
-        : empty('Практика пока не добавлена', 'Работы по этой теме появятся здесь.', '', true)}
-      </div>`,
+      ${works.length ? workTable(works, snapshot)
+        : empty('Работ по теме пока нет', 'Домашние задания и контесты по этой теме появятся здесь.', '', true)}`,
   };
 }
 
 function workProblemRow(work, problemID, index, snapshot) {
-  const { teacher, problem } = selectors(snapshot);
+  const { problem } = selectors(snapshot);
   const task = problem(problemID);
   const accepted = snapshot.submissions.some(item => item.work_id === work.id
     && item.problem_id === problemID && item.verdict === 'accepted' && item.user_id === snapshot.user.id);
-  const canSolve = workPhase(work) === 'open' && !teacher();
-  return `<div class="problem-row">
-    <span class="problem-letter">${String.fromCharCode(65 + index)}</span>
-    <div class="problem-row-content"><h3>${esc(task?.title || 'Условие пока скрыто')}</h3>
-      <p>${task ? `${task.time_limit_ms} мс · ${task.memory_limit_mb} МБ` : 'Откроется к началу контеста'}</p>
-    </div>
-    ${accepted ? '<span class="badge green">Зачтено</span>' : ''}
-    ${task ? `<button class="btn small ${canSolve ? 'primary' : ''}" data-action="problem"
-      data-id="${esc(problemID)}" data-work="${esc(work.id)}">${teacher() ? 'Условие' : canSolve ? 'Решать' : 'Посмотреть'}
-    </button>` : ''}
-  </div>`;
+  return `<tr>
+    <td class="problem-letter">${String.fromCharCode(65 + index)}</td>
+    <td>${task ? `<button class="row-link" data-action="problem" data-id="${esc(problemID)}"
+      data-work="${esc(work.id)}">${esc(task.title)}</button>` : '<span class="muted">Условие пока скрыто</span>'}
+    </td>
+    <td class="nowrap">${task ? `${task.time_limit_ms} мс · ${task.memory_limit_mb} МБ` : 'До начала контеста'}</td>
+    <td>${accepted ? '<span class="badge green">Зачтено</span>' : '—'}</td>
+  </tr>`;
 }
 
 export function workModal(id, snapshot) {
@@ -168,7 +164,10 @@ export function workModal(id, snapshot) {
     ${phase === 'finished' ? `<div class="alert">${icon('clock', 16)}
       <span>Время работы завершено. Новые решения больше не принимаются.</span>
     </div>` : ''}
-    <div>${item.problem_ids.map((id, index) => workProblemRow(item, id, index, snapshot)).join('')}</div>
+    <div class="table-scroll"><table class="task-table">
+      <thead><tr><th>#</th><th>Задача</th><th>Ограничения</th><th>Результат</th></tr></thead>
+      <tbody>${item.problem_ids.map((id, index) => workProblemRow(item, id, index, snapshot)).join('')}</tbody>
+    </table></div>
     ${!teacher() ? `<p class="help-text work-progress-note">Ваш прогресс: ${esc(progress.caption)}. Решения проверяются преподавателем.</p>` : ''}
     <div class="detail-actions">
       ${item.kind === 'contest' ? button('standings', 'Таблица результатов', 'trophy', '', `data-id="${esc(item.id)}"`) : ''}
@@ -205,9 +204,9 @@ function statementHTML(problem) {
 
 function submissionForm(problem, work, languages) {
   const options = languages.map(language => `<option value="${esc(language.id)}">${esc(language.name)}</option>`).join('');
-  return `<hr><h3 class="statement-heading">Отправить решение</h3>
+  return `<h3 class="statement-heading">Отправить решение</h3>
     <div class="alert blue">${icon('info', 15)}
-      <span>Ручная проверка: исходный код получит преподаватель. Автоматический запуск пока не выполняется.</span>
+      <span>Ручная проверка: решение проверит преподаватель.</span>
     </div>
     <form data-form="submission" data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
       <label class="form-field"><span class="form-label">Язык решения</span>
@@ -235,8 +234,10 @@ export function problemModal(id, workID, snapshot) {
   const canSolve = assignment && workPhase(assignment) === 'open' && !teacher();
   return {
     title: task.title, subtitle: assignment?.title || 'Предпросмотр условия', wide: true,
-    body: `${statementHTML(task)}
-      ${canSolve ? submissionForm(task, assignment, snapshot.languages) : ''}
+    body: `<div class="${canSolve ? 'problem-workspace' : 'problem-preview'}">
+        <section class="problem-condition" aria-label="Условие задачи">${statementHTML(task)}</section>
+        ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot.languages)}</section>` : ''}
+      </div>
       ${teacher() && task.tests?.length ? `<hr><h3 class="statement-heading">Скрытые тесты
         <span class="count-label">Видны только вам</span></h3>${samplesHTML(task.tests, true)}` : ''}`,
   };
@@ -252,20 +253,30 @@ export function submissionModal(id, snapshot) {
   return {
     title: problem(submission.problem_id)?.title || 'Посылка', subtitle: work(submission.work_id)?.title || 'Решение ученика', wide: true,
     body: `<div class="submission-summary">
-      <div class="student-cell"><span class="avatar">${esc(initials(author.name))}</span>
-        <div><div class="cell-title">${esc(author.name)}</div>
-          <div class="cell-subtitle">${esc(date(submission.created_at, true))} · ${esc(language(submission.language))}</div>
-        </div>
+      <div><strong>${esc(author.name)}</strong>
+        <span class="muted"> · ${esc(date(submission.created_at, true))} · ${esc(language(submission.language))}</span>
       </div>${verdictBadge(submission.verdict)}
     </div>
-    <p class="help-text">${submission.verdict === 'pending' ? 'Ожидает ручной проверки преподавателем.' : 'Результат ручной проверки преподавателем.'}</p>
-    <pre class="source-preview">${esc(submission.source)}</pre>
-    ${submission.feedback ? `<div class="feedback">${esc(submission.feedback)}</div>` : ''}
-    ${teacher() ? `<hr><form data-form="review" data-id="${esc(submission.id)}">
-      <label class="form-field"><span class="form-label">Результат проверки</span><select class="input" name="verdict">${options}</select></label>
-      ${field('Комментарий для ученика', 'feedback', { type: 'textarea', value: submission.feedback, placeholder: 'Что получилось и на что обратить внимание' })}
-      ${formFooter('Сохранить результат')}
-    </form>` : ''}`,
+    <div class="${teacher() ? 'review-workspace' : 'submission-result'}">
+      <section class="review-source" aria-label="Исходный код">
+        <h3>Исходный код</h3><pre class="source-preview">${esc(submission.source)}</pre>
+      </section>
+      ${teacher() ? `<section class="review-form"><h3>Проверка</h3>
+        <form data-form="review" data-id="${esc(submission.id)}">
+          <label class="form-field"><span class="form-label">Результат проверки</span>
+            <select class="input" name="verdict" required>
+              <option value="" disabled${submission.verdict === 'pending' ? ' selected' : ''}>Выберите результат</option>
+              ${options}
+            </select>
+          </label>
+          ${field('Комментарий для ученика', 'feedback', { type: 'textarea', value: submission.feedback })}
+          ${formFooter('Сохранить результат')}
+        </form>
+      </section>` : `<section class="review-feedback"><h3>Проверка</h3>
+        <p class="help-text">${submission.verdict === 'pending' ? 'Решение ожидает проверки преподавателем.' : 'Результат выставлен преподавателем.'}</p>
+        ${submission.feedback ? `<div class="feedback">${esc(submission.feedback)}</div>` : ''}
+      </section>`}
+    </div>`,
   };
 }
 

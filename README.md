@@ -117,4 +117,4 @@ node --test web/tests/*.test.mjs
 перезапуска и расчёт таблицы результатов.
 
 [Архитектура](docs/architecture.md) · [HTTP API](docs/api.md) ·
-[Журнал разработки](docs/development.md)
+[Журнал разработки](docs/development.md) · [Сравнение интерфейсов](docs/interface-research.md)

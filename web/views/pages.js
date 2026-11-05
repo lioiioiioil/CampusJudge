@@ -1,6 +1,6 @@
-import { esc, icon, initials, plural, safeLesson } from '../lib/format.js';
+import { esc, icon, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, matchesSearch } from '../lib/state.js';
-import { pageHeading, button, empty, workCard, submissionsTable } from '../lib/components.js';
+import { pageHeading, button, empty, workTable, submissionsTable } from '../lib/components.js';
 
 function filterTabs(options, selected) {
   return `<div class="tabs">${options.map(([value, label]) => `
@@ -25,34 +25,30 @@ export function renderWorks(kind, snapshot, view) {
   const filters = [['all', 'Все работы'], ['open', 'Открытые'],
     ...(teacher() ? [['draft', 'Черновики']] : []), ['closed', 'Завершённые']];
   return `${pageHeading(contest ? 'Учебные контесты' : 'Домашние задания',
-    contest ? 'Немного азарта, интересные задачи и понятный результат.' : teacher()
-      ? 'Пройдите тему на занятии, затем откройте практику своей группе.'
-      : 'Закрепляйте пройденное в своём темпе. Все попытки сохраняются.',
+    contest ? 'Контесты с общим временем и таблицей результатов.' : teacher()
+      ? 'Открывайте задания группе после занятия и проверяйте решения.'
+      : 'Домашние задания, открытые для вашей группы.',
     teacher() ? button(createAction, contest ? 'Новый контест' : 'Новая домашка') : '')}
     <div class="filter-bar">${filterTabs(filters, view.filter)}
       <span class="muted small-copy">${plural(works.length, 'работа', 'работы', 'работ')}</span>
     </div>
-    ${works.length ? `<div class="work-grid">${works.map(work => workCard(work, snapshot)).join('')}</div>`
-      : `<div class="panel">${empty('Здесь пока тихо', view.search ? 'Попробуйте изменить поисковый запрос.' : teacher()
+    ${works.length ? workTable(works, snapshot)
+      : `<div class="panel">${empty('Работы не найдены', view.search ? 'Попробуйте изменить поисковый запрос.' : teacher()
         ? 'Создайте работу, добавьте задачи и выберите группу учеников.'
-        : 'Преподаватель ещё не открыл работы в этом разделе.',
-      teacher() ? button(createAction, 'Создать первую работу', 'plus', 'soft') : '')}</div>`}`;
+        : 'Преподаватель ещё не открыл работы в этом разделе.')}</div>`}`;
 }
 
-function topicCard(topic, index, snapshot) {
+function topicRow(topic, snapshot) {
   const lessonURL = safeLesson(topic.lesson_url);
-  const symbols = ['{ }', '[ ]', '&lt;/&gt;'];
-  return `<article class="topic-card">
-    <span class="topic-symbol">${symbols[index % symbols.length]}</span>
-    <h3>${esc(topic.title)}</h3><p>${esc(topic.description || 'Материалы и практика по теме.')}</p>
-    <div class="work-card-meta topic-card-meta"><span>${icon('book', 12)}
-      ${plural(snapshot.works.filter(work => work.topic_id === topic.id).length, 'работа', 'работы', 'работ')}
-    </span></div>
-    ${lessonURL ? `<a class="btn small soft" href="${esc(lessonURL)}" target="_blank" rel="noopener noreferrer">
-      ${icon('link', 13)} Открыть занятие
-    </a>` : ''}
-    <button class="text-button topic-open" data-action="topic-detail" data-id="${esc(topic.id)}">Открыть тему ${icon('arrow', 13)}</button>
-  </article>`;
+  const count = snapshot.works.filter(work => work.topic_id === topic.id).length;
+  return `<li class="topic-row">
+    <div class="list-item-main">
+      <button class="row-link" data-action="topic-detail" data-id="${esc(topic.id)}">${esc(topic.title)}</button>
+      ${topic.description ? `<p class="list-description">${esc(topic.description)}</p>` : ''}
+      <span class="muted small-copy">${plural(count, 'работа', 'работы', 'работ')}</span>
+    </div>
+    ${lessonURL ? `<a href="${esc(lessonURL)}" target="_blank" rel="noopener noreferrer">Открыть занятие</a>` : ''}
+  </li>`;
 }
 
 function problemBank(snapshot, search) {
@@ -78,13 +74,12 @@ function problemBank(snapshot, search) {
 export function renderTopics(snapshot, view) {
   const { teacher } = selectors(snapshot);
   const topics = snapshot.topics.filter(topic => matchesSearch(`${topic.title} ${topic.description}`, view.search));
-  return `${pageHeading('От темы — к практике', 'Соберите материалы занятия, задачи и домашние задания в одном месте.',
+  return `${pageHeading('Темы и задачи', 'Темы занятий, ссылки на встречи и банк учебных задач.',
     teacher() ? button('create-topic', 'Добавить тему') : '')}
-    ${topics.length ? `<div class="topic-grid">${topics.map((topic, index) => topicCard(topic, index, snapshot)).join('')}</div>`
-      : `<div class="panel">${empty('Первая тема — начало курса', teacher()
+    ${topics.length ? `<ul class="plain-list">${topics.map(topic => topicRow(topic, snapshot)).join('')}</ul>`
+      : `<div class="panel">${empty('Тем пока нет', teacher()
         ? 'Например, «Условия и циклы». Добавьте описание и ссылку на онлайн-занятие.'
-        : 'Здесь появятся темы и ссылки на ваши занятия.',
-      teacher() ? button('create-topic', 'Добавить тему', 'plus', 'soft') : '')}</div>`}
+        : 'Здесь появятся темы и ссылки на ваши занятия.')}</div>`}
     ${teacher() ? problemBank(snapshot, view.search) : ''}`;
 }
 
@@ -99,9 +94,9 @@ export function renderSubmissions(snapshot, view) {
   }
   if (view.groupFilter) submissions = submissions.filter(item => user(item.user_id).group_id === view.groupFilter);
   const filters = [['all', 'Все посылки'], ['pending', 'На проверке'], ['accepted', 'Зачтено'], ['failed', 'Нужно доработать']];
-  return `${pageHeading(teacher() ? 'Каждая попытка имеет значение' : 'Ваш путь к решению', teacher()
-    ? 'Посмотрите исходный код, оставьте комментарий и помогите двигаться дальше.'
-    : 'Здесь вся история решений и обратная связь от преподавателя.')}
+  return `${pageHeading(teacher() ? 'Посылки учеников' : 'Мои посылки', teacher()
+    ? 'Исходный код, результаты и комментарии к решениям.'
+    : 'История ваших решений и комментарии преподавателя.')}
     <div class="filter-bar">${filterTabs(filters, view.filter)}
       ${teacher() ? `<select id="group-filter" class="filter-select" aria-label="Группа">
         <option value="">Все группы</option>${snapshot.groups.map(group => `
@@ -114,17 +109,17 @@ export function renderSubmissions(snapshot, view) {
     </div>`;
 }
 
-function groupCard(group, snapshot) {
-  const students = snapshot.users.filter(user => user.role === 'student' && user.group_id === group.id);
-  return `<article class="group-card">
-    <div class="student-cell group-heading"><span class="avatar">${icon('users', 19)}</span>
-      <div><h3>${esc(group.name)}</h3><p class="muted tiny-copy">${plural(students.length, 'ученик', 'ученика', 'учеников')}</p></div>
+function groupRow(group, snapshot) {
+  const count = snapshot.users.filter(user => user.role === 'student' && user.group_id === group.id).length;
+  return `<li class="group-row">
+    <div class="list-item-main"><h3>${esc(group.name)}</h3>
+      <span class="muted small-copy">${plural(count, 'ученик', 'ученика', 'учеников')}</span>
     </div>
     ${group.invite_code ? `<div class="invite">
-      <div><div class="invite-label">Код для регистрации учеников</div><code>${esc(group.invite_code)}</code></div>
+      <span class="muted small-copy">Код группы:</span> <code>${esc(group.invite_code)}</code>
       <button class="icon-btn" data-action="copy-invite" data-id="${esc(group.id)}" title="Скопировать код" aria-label="Скопировать код группы">${icon('copy', 15)}</button>
     </div>` : ''}
-  </article>`;
+  </li>`;
 }
 
 function studentsTable(students, snapshot) {
@@ -133,9 +128,7 @@ function studentsTable(students, snapshot) {
     const solved = new Set(submissions.filter(item => item.verdict === 'accepted')
       .map(item => `${item.work_id}:${item.problem_id}`)).size;
     return `<tr>
-      <td><div class="student-cell"><span class="avatar">${esc(initials(user.name))}</span>
-        <div><div class="cell-title">${esc(user.name)}</div><div class="cell-subtitle">${esc(user.username)}</div></div>
-      </div></td>
+      <td><div class="cell-title">${esc(user.name)}</div><div class="cell-subtitle">${esc(user.username)}</div></td>
       <td class="muted">${esc(findByID(snapshot.groups, user.group_id)?.name || '—')}</td>
       <td>${submissions.length}</td><td>${solved}</td>
       <td>${submissions.filter(item => item.verdict === 'pending').length}</td>
@@ -152,13 +145,12 @@ export function renderStudents(snapshot, view) {
   if (!teacher()) return empty('Раздел преподавателя', 'Откройте свои домашние задания или контесты.');
   const groups = snapshot.groups.filter(group => matchesSearch(group.name, view.search));
   const students = snapshot.users.filter(user => user.role === 'student' && matchesSearch(`${user.name} ${user.username}`, view.search));
-  return `${pageHeading('Учиться интереснее вместе', 'Пригласите учеников по коду группы. Они смогут зарегистрироваться самостоятельно.',
+  return `${pageHeading('Группы и ученики', 'Передайте ученикам код группы для самостоятельной регистрации.',
     button('create-group', 'Создать группу'))}
-    ${groups.length ? `<div class="group-grid">${groups.map(group => groupCard(group, snapshot)).join('')}</div>`
-      : `<div class="panel">${empty('Соберите первую группу', 'Группа помогает открывать работы только нужным ученикам.',
-        button('create-group', 'Создать группу', 'plus', 'soft'))}</div>`}
+    ${groups.length ? `<ul class="plain-list groups-list">${groups.map(group => groupRow(group, snapshot)).join('')}</ul>`
+      : `<div class="panel">${empty('Групп пока нет', 'Группа помогает открывать работы только нужным ученикам.')}</div>`}
     <div class="section-heading"><h2>Ученики <span class="count-label">${students.length}</span></h2></div>
     <div class="panel">${students.length ? studentsTable(students, snapshot)
-      : empty('Ждём первых учеников', 'Передайте ученикам код группы. После регистрации они появятся здесь.', '', true)}
+      : empty('В группе пока нет учеников', 'Передайте ученикам код группы. После регистрации они появятся здесь.', '', true)}
     </div>`;
 }

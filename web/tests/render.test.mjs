@@ -63,3 +63,19 @@ test('standings renders +1 for exactly one prior failure', () => {
     problems: { p: { solved: true, attempts: 1, minutes: 1 } } }], view.snapshot);
   assert.match(spec.body, /class="standings-cell solved">\+1\s*<div/);
 });
+
+test('pending manual review requires an explicit verdict and preserves an existing result', () => {
+  const view = fixture();
+  function selectedVerdict(body) {
+    const select = body.match(/<select[^>]*name="verdict"[^>]*>([\s\S]*?)<\/select>/);
+    assert.ok(select, 'teacher review must include the verdict selector');
+    const options = [...select[1].matchAll(/<option\b([^>]*)>/g)];
+    return options.find(option => /\bselected\b/.test(option[1]))?.[1];
+  }
+  const pending = selectedVerdict(submissionModal('s', view.snapshot).body);
+  assert.ok(pending, 'pending submission needs an explicit placeholder');
+  assert.match(pending, /value=""/);
+  assert.match(pending, /\bdisabled\b/);
+  view.snapshot.submissions[0].verdict = 'accepted';
+  assert.match(selectedVerdict(submissionModal('s', view.snapshot).body), /value="accepted"/);
+});
