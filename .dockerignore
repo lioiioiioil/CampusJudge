@@ -1,0 +1,10 @@
+**
+!go.mod
+!internal/
+!internal/judge/
+!internal/judge/protocol/
+!internal/judge/protocol/*.go
+!internal/judge/sandbox/
+!internal/judge/sandbox/*.go
+!judge/
+!judge/Dockerfile
