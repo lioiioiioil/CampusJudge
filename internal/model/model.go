@@ -80,6 +80,19 @@ type Submission struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	JudgedAt   *time.Time `json:"judged_at,omitempty"`
 	ReviewerID string     `json:"reviewer_id,omitempty"`
+	Judging    *Judging   `json:"judging,omitempty"`
+}
+
+// Judging contains only public progress. Hidden test inputs/answers never become
+// part of a submission or leave the worker's trusted comparison boundary.
+type Judging struct {
+	Status        string `json:"status"`
+	PassedTests   int    `json:"passed_tests"`
+	TotalTests    int    `json:"total_tests"`
+	FailedTest    int    `json:"failed_test,omitempty"`
+	TimeMS        int64  `json:"time_ms"`
+	CompileOutput string `json:"compile_output,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 type Session struct {
 	TokenHash string    `json:"token_hash"`

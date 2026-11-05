@@ -100,7 +100,7 @@ func TestSnapshotsAndTransactionInputsAreIndependent(t *testing.T) {
 	if err := s.Update(func(state *model.State) error {
 		state.Problems = []model.Problem{{ID: "problem", Samples: []model.TestCase{{Input: "sample"}}, Tests: []model.TestCase{{Input: "hidden"}}}}
 		state.Works = []model.Work{{ID: "work", ProblemIDs: []string{"problem"}, GroupIDs: []string{"group"}, StartsAt: &now, EndsAt: &now}}
-		state.Submissions = []model.Submission{{ID: "submission", JudgedAt: &now}}
+		state.Submissions = []model.Submission{{ID: "submission", JudgedAt: &now, Judging: &model.Judging{Status: "done", PassedTests: 3}}}
 		retained = state
 		return nil
 	}); err != nil {
@@ -109,17 +109,20 @@ func TestSnapshotsAndTransactionInputsAreIndependent(t *testing.T) {
 	retained.Problems[0].Tests[0].Input = "mutated through callback"
 	retained.Works[0].GroupIDs[0] = "other group"
 	*retained.Works[0].StartsAt = now.Add(time.Hour)
+	retained.Submissions[0].Judging.Status = "changed"
 	copy := s.Snapshot()
 	copy.Problems[0].Samples[0].Input = "mutated through snapshot"
 	copy.Works[0].ProblemIDs[0] = "other problem"
 	*copy.Works[0].EndsAt = now.Add(time.Hour)
 	*copy.Submissions[0].JudgedAt = now.Add(time.Hour)
+	copy.Submissions[0].Judging.PassedTests = 100
 	got := s.Snapshot()
 	if got.Problems[0].Tests[0].Input != "hidden" || got.Problems[0].Samples[0].Input != "sample" ||
 		got.Works[0].GroupIDs[0] != "group" || got.Works[0].ProblemIDs[0] != "problem" ||
 		!got.Works[0].StartsAt.Equal(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)) ||
 		!got.Works[0].EndsAt.Equal(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)) ||
-		!got.Submissions[0].JudgedAt.Equal(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)) {
+		!got.Submissions[0].JudgedAt.Equal(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)) ||
+		got.Submissions[0].Judging.Status != "done" || got.Submissions[0].Judging.PassedTests != 3 {
 		t.Fatalf("caller mutated stored data: %+v", got)
 	}
 }

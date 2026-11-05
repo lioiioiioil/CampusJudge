@@ -150,6 +150,10 @@ func clone(state model.State) model.State {
 	}
 	copy.Submissions = slices.Clone(state.Submissions)
 	for i := range copy.Submissions {
+		if state.Submissions[i].Judging != nil {
+			progress := *state.Submissions[i].Judging
+			copy.Submissions[i].Judging = &progress
+		}
 		if state.Submissions[i].JudgedAt != nil {
 			timestamp := *state.Submissions[i].JudgedAt
 			copy.Submissions[i].JudgedAt = &timestamp

@@ -33,6 +33,7 @@ func TestStandingsUseChronologyAndICPCPenalties(t *testing.T) {
 		makeSubmission("lena-late-wa", "lena", "a", "wrong_answer", 20*time.Minute),
 		makeSubmission("lena-ce", "lena", "a", "compilation_error", 3*time.Minute),
 		makeSubmission("lena-pending", "lena", "a", "pending", 4*time.Minute),
+		makeSubmission("lena-infrastructure-error", "lena", "a", "judge_error", 5*time.Minute),
 		makeSubmission("lena-re", "lena", "a", "runtime_error", 6*time.Minute),
 		makeSubmission("anna-ac-a", "anna", "a", "accepted", 12*time.Minute),
 		makeSubmission("anna-wa-b", "anna", "b", "wrong_answer", 11*time.Minute),

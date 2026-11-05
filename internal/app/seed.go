@@ -74,7 +74,7 @@ func Initialize(s *store.Store, options BootstrapOptions) (Bootstrap, error) {
 		{
 			ID:          newID("work"),
 			Title:       "Тестовый контест",
-			Description: "Пробный контест с одной задачей. Решения проверяет преподаватель.",
+			Description: "Пробный контест с одной задачей для знакомства с отправкой решений.",
 			Kind:        "contest",
 			GroupIDs:    []string{group.ID},
 			ProblemIDs:  []string{problems[1].ID},

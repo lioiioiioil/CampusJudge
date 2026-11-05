@@ -11,15 +11,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lioiioiioil/CampusJudge/internal/judge"
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 	"github.com/lioiioiioil/CampusJudge/internal/store"
 )
 
 type App struct {
-	store    *store.Store
-	now      func() time.Time
-	rateMu   sync.Mutex
-	attempts map[string]rateEntry
+	store     *store.Store
+	now       func() time.Time
+	rateMu    sync.Mutex
+	attempts  map[string]rateEntry
+	runner    judge.Runner
+	judgeWake chan struct{}
+	judgeDone chan struct{}
 }
 type rateEntry struct {
 	started time.Time

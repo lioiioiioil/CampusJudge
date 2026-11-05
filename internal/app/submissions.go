@@ -20,8 +20,8 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 	if err := readJSON(w, r, &in); err != nil {
 		return err
 	}
-	if len(strings.TrimSpace(in.Source)) == 0 || len(in.Source) > 256<<10 {
-		return fail(400, "Отправьте исходный код размером до 256 КБ")
+	if len(strings.TrimSpace(in.Source)) == 0 || len(in.Source) > 128<<10 {
+		return fail(400, "Отправьте исходный код размером до 128 КБ")
 	}
 	if !languageSupported(in.Language) {
 		return fail(http.StatusBadRequest, "Выберите язык решения")
@@ -45,11 +45,32 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 				return fail(http.StatusBadRequest, err.Error())
 			}
 		}
+		if a.runner != nil && automaticLanguage(in.Language) {
+			problem := problemByID(*s, in.ProblemID)
+			total := len(problem.Samples) + len(problem.Tests)
+			if total == 0 {
+				return fail(http.StatusBadRequest, "У задачи пока нет тестов. Обратитесь к преподавателю")
+			}
+			queued, own := 0, 0
+			for _, previous := range s.Submissions {
+				if automaticPending(previous) {
+					queued++
+					if previous.UserID == user.ID {
+						own++
+					}
+				}
+			}
+			if queued >= 64 || own >= 3 {
+				return fail(http.StatusTooManyRequests, "Дождитесь завершения отправленных решений: очередь проверки заполнена")
+			}
+			submission.Judging = &model.Judging{Status: "queued", TotalTests: total}
+		}
 		s.Submissions = append(s.Submissions, submission)
 		return nil
 	}); err != nil {
 		return err
 	}
+	a.wakeJudge()
 	writeJSON(w, 201, submission)
 	return nil
 }
@@ -61,7 +82,7 @@ func (a *App) review(w http.ResponseWriter, r *http.Request, user model.User) er
 	if err := readJSON(w, r, &in); err != nil {
 		return err
 	}
-	if !slices.Contains([]string{"accepted", "wrong_answer", "compilation_error", "runtime_error", "time_limit", "memory_limit"}, in.Verdict) {
+	if !slices.Contains([]string{"accepted", "wrong_answer", "compilation_error", "runtime_error", "time_limit", "memory_limit", "output_limit"}, in.Verdict) {
 		return fail(400, "Выберите результат проверки")
 	}
 	if len(in.Feedback) > 10000 {
@@ -77,6 +98,8 @@ func (a *App) review(w http.ResponseWriter, r *http.Request, user model.User) er
 				now := a.now()
 				sub.JudgedAt = &now
 				sub.ReviewerID = user.ID
+				// Removing progress also fences an already running automatic job.
+				sub.Judging = nil
 				result = *sub
 				return nil
 			}

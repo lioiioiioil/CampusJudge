@@ -54,7 +54,7 @@ func ComputeStandings(work model.Work, users []model.User, submissions []model.S
 			score = &ProblemScore{}
 			row.Problems[submission.ProblemID] = score
 		}
-		if score.Solved || submission.Verdict == "pending" {
+		if score.Solved || submission.Verdict == "pending" || submission.Verdict == "judge_error" {
 			continue
 		}
 		if submission.Verdict == "accepted" {

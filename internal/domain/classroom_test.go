@@ -76,6 +76,7 @@ func TestTeacherClassroomIncludesTeachingDataWithoutCredentials(t *testing.T) {
 
 func TestClassroomProjectionDoesNotMutateOrAliasInput(t *testing.T) {
 	state, now := classroomFixture()
+	state.Submissions[0].Judging = &model.Judging{Status: "done", PassedTests: 2}
 	before, err := json.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +87,7 @@ func TestClassroomProjectionDoesNotMutateOrAliasInput(t *testing.T) {
 	student.Works[0].ProblemIDs[0] = "changed"
 	*student.Works[1].StartsAt = now.Add(2 * time.Hour)
 	*student.Submissions[0].JudgedAt = now.Add(time.Hour)
+	student.Submissions[0].Judging.PassedTests = 100
 	teacher := domain.ClassroomFor(state, state.Users[0], now)
 	teacher.Problems[0].Tests[0].Output = "changed"
 	teacher.Groups[0].InviteCode = "changed"
