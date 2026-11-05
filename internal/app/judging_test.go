@@ -135,7 +135,7 @@ func TestManualReviewWinsOverLateAutomaticResult(t *testing.T) {
 	}
 }
 
-func TestRestartResumesRunningJobWithoutAdoptingManualSubmissions(t *testing.T) {
+func TestRestartResumesRunningJobWithoutAdoptingUnsupportedManualSubmissions(t *testing.T) {
 	f := setup(t)
 	_, cookie := f.student("recovery")
 	manual := sendSolution(f, cookie, "rust")
@@ -161,6 +161,74 @@ func TestRestartResumesRunningJobWithoutAdoptingManualSubmissions(t *testing.T) 
 	for _, sub := range reopened.Snapshot().Submissions {
 		if sub.ID == manual.ID && (sub.Verdict != "pending" || sub.Judging != nil) {
 			t.Fatal("manual submission changed")
+		}
+	}
+}
+
+func TestEnablingAutomaticJudgeAdoptsOldPendingSolutionsOnly(t *testing.T) {
+	f := setup(t)
+	_, cookie := f.student("upgrade")
+	oldPending := sendSolution(f, cookie, "python")
+	oldReviewed := sendSolution(f, cookie, "cpp")
+	f.request("PATCH", "/api/submissions/"+oldReviewed.ID, map[string]string{"verdict": "wrong_answer", "feedback": "Сохранить ручной результат"}, f.teacher, 200)
+	runner := newControlledRunner()
+	startControlled(t, f.app, runner)
+	job := takeJob(t, runner)
+	if job.Language != "python" || job.Source != "student source\n" {
+		t.Fatal("wrong legacy submission adopted")
+	}
+	runner.replies <- judgeReply{result: judge.Result{Verdict: "accepted", PassedTests: 3, TotalTests: 3}}
+	_ = awaitSubmission(t, f.store, oldPending.ID, "accepted")
+	for _, sub := range f.store.Snapshot().Submissions {
+		if sub.ID == oldReviewed.ID && (sub.Verdict != "wrong_answer" || sub.Judging != nil || sub.Feedback != "Сохранить ручной результат") {
+			t.Fatal("upgrade overwrote teacher result")
+		}
+	}
+	select {
+	case <-runner.calls:
+		t.Fatal("reviewed submission was executed")
+	default:
+	}
+}
+
+func TestLegacyAdmissionRespectsCapacityAndFillsFreedSlots(t *testing.T) {
+	state := model.State{Problems: []model.Problem{{ID: "p", Samples: []model.TestCase{{Output: "1"}}}}}
+	for range 5 {
+		state.Submissions = append(state.Submissions, model.Submission{UserID: "u", ProblemID: "p", Language: "python", Source: "print(1)", Verdict: "pending"})
+	}
+	if !prepareQueue(&state, false) {
+		t.Fatal("legacy pending jobs not adopted")
+	}
+	for i, sub := range state.Submissions {
+		if (sub.Judging != nil) != (i < 3) {
+			t.Fatal("legacy jobs exceeded per-student bound or changed arrival order")
+		}
+	}
+	state.Submissions[0].Verdict = "accepted"
+	state.Submissions[0].Judging.Status = "done"
+	if !prepareQueue(&state, false) || state.Submissions[3].Judging == nil || state.Submissions[4].Judging != nil {
+		t.Fatal("freed slot not filled within bound")
+	}
+}
+
+func TestLegacyBacklogIsAdmittedBetweenJobsWithoutWaitingForIdle(t *testing.T) {
+	f := setup(t)
+	_, cookie := f.student("backlog")
+	var old []model.Submission
+	for range 4 {
+		old = append(old, sendSolution(f, cookie, "python"))
+	}
+	runner := newControlledRunner()
+	startControlled(t, f.app, runner)
+	_ = takeJob(t, runner)
+	if f.store.Snapshot().Submissions[3].Judging != nil {
+		t.Fatal("initial migration exceeded per-user bound")
+	}
+	runner.replies <- judgeReply{result: judge.Result{Verdict: "accepted", PassedTests: 3, TotalTests: 3}}
+	_ = takeJob(t, runner) // Remaining queue is still nonempty; consumer never went idle.
+	for _, sub := range f.store.Snapshot().Submissions {
+		if sub.ID == old[3].ID && sub.Judging == nil {
+			t.Fatal("old backlog waits for idle while newer queue is being drained")
 		}
 	}
 }

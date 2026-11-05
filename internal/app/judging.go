@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lioiioiioil/CampusJudge/internal/judge"
@@ -18,23 +19,8 @@ func (a *App) StartJudge(ctx context.Context, runner judge.Runner) error {
 	if runner == nil || a.runner != nil {
 		return errors.New("judge must be configured once with a runner")
 	}
-	needsRecovery := false
-	for _, sub := range a.store.Snapshot().Submissions {
-		if automaticPending(sub) && sub.Judging.Status == "running" {
-			needsRecovery = true
-		}
-	}
-	if needsRecovery {
-		if err := a.store.Update(func(s *model.State) error {
-			for i := range s.Submissions {
-				if automaticPending(s.Submissions[i]) {
-					s.Submissions[i].Judging.Status = "queued"
-				}
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
+	if err := a.prepareJudgeQueue(true); err != nil {
+		return err
 	}
 	a.runner = runner
 	a.judgeWake = make(chan struct{}, 1)
@@ -42,6 +28,54 @@ func (a *App) StartJudge(ctx context.Context, runner judge.Runner) error {
 	go a.judgeLoop(ctx)
 	a.wakeJudge()
 	return nil
+}
+
+// Manual installations may already contain pending solutions when automatic
+// judging is enabled. Admit those in stored arrival order, respecting the same
+// bounds as new submissions; completed teacher decisions are never adopted.
+func prepareQueue(state *model.State, recoverRunning bool) bool {
+	changed, active := false, 0
+	byUser := make(map[string]int)
+	for i := range state.Submissions {
+		sub := &state.Submissions[i]
+		if automaticPending(*sub) {
+			active++
+			byUser[sub.UserID]++
+			if recoverRunning && sub.Judging.Status == "running" {
+				sub.Judging.Status = "queued"
+				changed = true
+			}
+		}
+	}
+	for i := range state.Submissions {
+		sub := &state.Submissions[i]
+		if active >= 64 {
+			break
+		}
+		if sub.Verdict != "pending" || sub.ReviewerID != "" || sub.Judging != nil ||
+			!automaticLanguage(sub.Language) || byUser[sub.UserID] >= 3 ||
+			len(sub.Source) > 128<<10 || strings.TrimSpace(sub.Source) == "" {
+			continue
+		}
+		problem := problemByID(*state, sub.ProblemID)
+		total := len(problem.Samples) + len(problem.Tests)
+		if problem.ID == "" || total == 0 {
+			continue
+		}
+		sub.Judging = &model.Judging{Status: "queued", TotalTests: total}
+		active++
+		byUser[sub.UserID]++
+		changed = true
+	}
+	return changed
+}
+
+func (a *App) prepareJudgeQueue(recoverRunning bool) error {
+	probe := a.store.Snapshot()
+	if !prepareQueue(&probe, recoverRunning) {
+		return nil
+	}
+	return a.store.Update(func(state *model.State) error { prepareQueue(state, recoverRunning); return nil })
 }
 
 func (a *App) WaitJudge() {
@@ -86,6 +120,12 @@ func (a *App) judgeLoop(ctx context.Context) {
 		case <-tick.C:
 		}
 		for ctx.Err() == nil {
+			// Reconcile between jobs, not only on an idle tick: a continuously
+			// occupied queue must still admit earlier pending upgrade work.
+			if err := a.prepareJudgeQueue(false); err != nil {
+				slog.Error("judge queue preparation failed", "error", err)
+				break
+			}
 			var next *model.Submission
 			for _, sub := range a.store.Snapshot().Submissions {
 				if automaticPending(sub) {
