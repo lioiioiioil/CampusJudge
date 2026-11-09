@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,4 +88,54 @@ func TestExclusiveOpenReleasesOwnershipOnReadFailure(t *testing.T) {
 		t.Fatalf("failed read left ownership behind: %v", err)
 	}
 	t.Cleanup(func() { _ = owner.Close() })
+}
+
+func TestExclusiveOpenReservesOwnershipSidecarNames(t *testing.T) {
+	dir := t.TempDir()
+	const existingState = `{"version":1}`
+	reserved := filepath.Join(dir, "existing.json.lock")
+	if err := os.WriteFile(reserved, []byte(existingState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "alias.json")
+	if err := os.Symlink(reserved, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{reserved, alias, filepath.Join(dir, "new.json.LOCK")} {
+		owner, err := store.OpenExclusive(path)
+		if owner != nil {
+			_ = owner.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "reserved for ownership sidecars") {
+			t.Fatalf("OpenExclusive(%s) = %v, want reserved filename error", path, err)
+		}
+	}
+	if contents, err := os.ReadFile(reserved); err != nil || string(contents) != existingState {
+		t.Fatalf("legacy state changed: %q, %v", contents, err)
+	}
+	if _, err := os.Stat(reserved + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reserved path acquired an ownership sidecar: %v", err)
+	}
+}
+
+func TestExclusiveOpenPreservesNonemptyOwnershipSidecar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "class.json")
+	sidecar := path + ".lock"
+	const existingState = `{"version":1}`
+	if err := os.WriteFile(sidecar, []byte(existingState), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := store.OpenExclusive(path)
+	if owner != nil {
+		_ = owner.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "state ownership lock must be empty") {
+		t.Fatalf("OpenExclusive accepted a data file as its sidecar: %v", err)
+	}
+	if contents, err := os.ReadFile(sidecar); err != nil || string(contents) != existingState {
+		t.Fatalf("sidecar contents changed: %q, %v", contents, err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("primary state file was created despite refusing the sidecar: %v", err)
+	}
 }

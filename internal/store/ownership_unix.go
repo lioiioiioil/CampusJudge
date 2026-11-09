@@ -23,6 +23,10 @@ func lockStateFile(path string) (*os.File, error) {
 		_ = file.Close()
 		return nil, errors.New("state ownership lock must be a regular file")
 	}
+	if info.Size() != 0 {
+		_ = file.Close()
+		return nil, fmt.Errorf("state ownership lock must be empty: %s", path)
+	}
 	for {
 		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if !errors.Is(err, syscall.EINTR) {

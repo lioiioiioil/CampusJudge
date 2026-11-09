@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+const stateLockSuffix = ".lock"
 
 var ErrStateInUse = errors.New("state file is already in use by another CampusJudge instance")
 
@@ -16,7 +19,11 @@ func OpenExclusive(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	owner, err := lockStateFile(path + ".lock")
+	// The reservation also covers aliases on case-insensitive filesystems.
+	if strings.HasSuffix(strings.ToLower(filepath.Base(path)), stateLockSuffix) {
+		return nil, fmt.Errorf("state filename must not end in %s (reserved for ownership sidecars): %s", stateLockSuffix, path)
+	}
+	owner, err := lockStateFile(path + stateLockSuffix)
 	if err != nil {
 		return nil, err
 	}
