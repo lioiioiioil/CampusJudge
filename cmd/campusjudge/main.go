@@ -34,10 +34,50 @@ func run() error {
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	return serve(ctx, serverConfig{addr: *addr, dataPath: *path, demo: *demo, judging: *judging, judgeImage: *judgeImage})
+}
+
+type serverConfig struct {
+	addr       string
+	dataPath   string
+	demo       bool
+	judging    string
+	judgeImage string
+}
+
+func serve(ctx context.Context, config serverConfig) (err error) {
+	if config.judging != "docker" && config.judging != "manual" {
+		return errors.New("-judge must be docker or manual")
+	}
+	s, err := store.OpenExclusive(config.dataPath)
+	if err != nil {
+		return fmt.Errorf("open data: %w", err)
+	}
+	defer func() {
+		if closeErr := s.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("release data ownership: %w", closeErr))
+		}
+	}()
+	// A public demo password must not be exposed by accidentally changing -addr.
+	if config.demo || s.Snapshot().Demo {
+		host, _, err := net.SplitHostPort(config.addr)
+		if err != nil {
+			return err
+		}
+		ip := net.ParseIP(host)
+		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return errors.New("demo credentials are restricted to a loopback address")
+		}
+	}
+	listener, err := net.Listen("tcp", config.addr)
+	if err != nil {
+		return fmt.Errorf("listen HTTP: %w", err)
+	}
+	defer listener.Close()
+
 	var runner judge.Runner
-	switch *judging {
-	case "docker":
-		docker, err := judge.NewDocker(judge.DockerOptions{Binary: "docker", Image: *judgeImage})
+	if config.judging == "docker" {
+		docker, err := judge.NewDocker(judge.DockerOptions{Binary: "docker", Image: config.judgeImage})
 		if err != nil {
 			return err
 		}
@@ -48,27 +88,9 @@ func run() error {
 			return fmt.Errorf("automatic judge unavailable: %w; see docs/automatic-judge.md, or choose -judge manual", err)
 		}
 		runner = docker
-	case "manual":
-	default:
-		return errors.New("-judge must be docker or manual")
-	}
-	s, err := store.Open(*path)
-	if err != nil {
-		return fmt.Errorf("open data: %w", err)
-	}
-	// A public demo password must not be exposed by accidentally changing -addr.
-	if *demo || s.Snapshot().Demo {
-		host, _, err := net.SplitHostPort(*addr)
-		if err != nil {
-			return err
-		}
-		ip := net.ParseIP(host)
-		if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-			return errors.New("demo credentials are restricted to a loopback address")
-		}
 	}
 	bootstrap, err := app.Initialize(s, app.BootstrapOptions{
-		Demo:            *demo,
+		Demo:            config.demo,
 		TeacherPassword: os.Getenv("CAMPUS_TEACHER_PASSWORD"),
 		Now:             time.Now(),
 	})
@@ -81,10 +103,12 @@ func run() error {
 	mux := http.NewServeMux()
 	application := app.New(s)
 	if runner != nil {
-		if err := application.StartJudge(ctx, runner); err != nil {
+		judgeCtx, cancel := context.WithCancel(ctx)
+		if err := application.StartJudge(judgeCtx, runner); err != nil {
+			cancel()
 			return fmt.Errorf("start judge: %w", err)
 		}
-		defer func() { stop(); application.WaitJudge() }()
+		defer func() { cancel(); application.WaitJudge() }()
 	} else if err := application.UseManualJudging(); err != nil {
 		return err
 	}
@@ -93,7 +117,7 @@ func run() error {
 	mux.Handle("/healthz", api)
 	mux.Handle("/", web.Handler())
 	server := &http.Server{
-		Addr:              *addr,
+		Addr:              config.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -102,7 +126,8 @@ func run() error {
 		MaxHeaderBytes:    16 << 10,
 	}
 	failure := make(chan error, 1)
-	go func() { slog.Info("CampusJudge ready", "url", "http://"+*addr); failure <- server.ListenAndServe() }()
+	slog.Info("CampusJudge ready", "url", "http://"+listener.Addr().String())
+	go func() { failure <- server.Serve(listener) }()
 	select {
 	case err := <-failure:
 		if !errors.Is(err, http.ErrServerClosed) {

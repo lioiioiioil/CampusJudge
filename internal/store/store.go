@@ -1,5 +1,4 @@
 // Package store provides transactional JSON-file storage for one server process.
-// Multiple processes must not open the same state file for writing.
 package store
 
 import (
@@ -19,13 +18,16 @@ import (
 const currentVersion = 1
 
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	state model.State
+	mu     sync.RWMutex
+	path   string
+	state  model.State
+	owner  *os.File
+	closed bool
 }
 
 // Open reads an existing state file or prepares an empty state if it is missing.
 // A missing file is created by the first successful Update, never by a read.
+// Use OpenExclusive when serving the file from an independent process.
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("state file path is empty")
@@ -34,6 +36,10 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve state file: %w", err)
 	}
+	return openState(absPath)
+}
+
+func openState(absPath string) (*Store, error) {
 	s := &Store{path: absPath, state: model.State{Version: currentVersion}}
 	normalize(&s.state)
 	file, err := os.Open(absPath)
@@ -80,6 +86,9 @@ func (s *Store) Update(fn func(*model.State) error) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("state store is closed")
+	}
 	candidate := clone(s.state)
 	if err := fn(&candidate); err != nil {
 		return err
