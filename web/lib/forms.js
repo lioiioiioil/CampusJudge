@@ -184,6 +184,12 @@ const builders = {
   submission,
   topic,
   review,
+  rejudge: (fields, context) => {
+    if (!context.id) throw new Error('Посылка не найдена.');
+    return command(`/api/submissions/${encodeURIComponent(context.id)}/rejudge`, {
+      revision: positiveInteger(fields, 'revision', 'версия тестов'),
+    }, 'Посылка поставлена на перепроверку');
+  },
   group: fields => command('/api/groups', { name: required(fields, 'name', 'Название группы') },
     'Группа создана. Код приглашения доступен в разделе «Ученики».', 'students'),
 };

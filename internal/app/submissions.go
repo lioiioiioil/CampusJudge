@@ -88,9 +88,10 @@ func (a *App) review(w http.ResponseWriter, r *http.Request, user model.User) er
 		for i := range s.Submissions {
 			if s.Submissions[i].ID == r.PathValue("id") {
 				sub := &s.Submissions[i]
+				now := a.now()
+				archiveJudgment(sub, now)
 				sub.Verdict = in.Verdict
 				sub.Feedback = in.Feedback
-				now := a.now()
 				sub.JudgedAt = &now
 				sub.ReviewerID = user.ID
 				// Removing progress also fences an already running automatic job.

@@ -18,10 +18,10 @@ func (a *App) retryJudging(w http.ResponseWriter, r *http.Request, _ model.User)
 			if sub.ID != r.PathValue("id") {
 				continue
 			}
-			if sub.ReviewerID != "" || sub.Verdict != "judge_error" || sub.Judging == nil || sub.Judging.Status != "error" {
+			if sub.ReviewerID != "" || sub.Judging == nil || sub.Judging.Status != "error" {
 				return fail(409, "Повтор доступен после сбоя автоматической проверки")
 			}
-			if err := enqueueJudgment(s, sub, sub.TestRevision); err != nil {
+			if err := enqueueJudgment(s, sub, targetTestRevision(*sub)); err != nil {
 				return err
 			}
 			result = *sub
@@ -45,9 +45,11 @@ func enqueueJudgment(state *model.State, submission *model.Submission, revision 
 	if err := checkJudgeCapacity(state.Submissions, submission.UserID); err != nil {
 		return err
 	}
-	submission.Verdict = "pending"
-	submission.JudgedAt = nil
-	submission.TestRevision = tests.Number
-	submission.Judging = &model.Judging{Status: "queued", TotalTests: total}
+	if !hasEffectiveVerdict(*submission) {
+		submission.Verdict = "pending"
+		submission.JudgedAt = nil
+		submission.TestRevision = tests.Number
+	}
+	submission.Judging = &model.Judging{Status: "queued", TargetRevision: tests.Number, TotalTests: total}
 	return nil
 }

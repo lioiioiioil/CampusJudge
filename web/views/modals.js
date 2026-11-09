@@ -1,4 +1,4 @@
-import { judgingResult } from '../lib/judging.js';
+import { canRejudge, canRetryJudging, judgingResult } from '../lib/judging.js';
 import { esc, icon, date, localDateTime, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, verdictNames, standingsMark, latestSubmission } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
@@ -339,8 +339,11 @@ export function submissionModal(id, snapshot) {
   const submission = findByID(snapshot.submissions, id);
   if (!submission) return null;
   const author = user(submission.user_id);
+  const task = problem(submission.problem_id);
+  const assignment = work(submission.work_id);
+  const selectedVerdict = ['queued', 'running'].includes(submission.judging?.status) ? '' : submission.verdict;
   const options = Object.entries(verdictNames).filter(([value]) => !['pending', 'judge_error'].includes(value))
-    .map(([value, label]) => `<option value="${value}"${submission.verdict === value ? ' selected' : ''}>${label}</option>`).join('');
+    .map(([value, label]) => `<option value="${value}"${selectedVerdict === value ? ' selected' : ''}>${label}</option>`).join('');
   return {
     title: problem(submission.problem_id)?.title || 'Посылка', subtitle: work(submission.work_id)?.title || 'Решение ученика', wide: true,
     body: `<div class="submission-summary">
@@ -354,12 +357,19 @@ export function submissionModal(id, snapshot) {
       </section>
       ${teacher() ? `<section class="review-form"><h3>Проверка</h3>
         ${judgingResult(submission)}
-        ${snapshot.judging_mode === 'automatic' && submission.judging?.status === 'error' && !submission.reviewer_id
-          ? button('retry-judging', 'Повторить проверку', '', '', `data-id="${esc(submission.id)}"`) : ''}
+        ${snapshot.judging_mode === 'automatic' ? button('retry-judging', 'Повторить проверку', '', '',
+          `data-id="${esc(submission.id)}" data-judge-retry="${esc(submission.id)}"${canRetryJudging(submission) ? '' : ' hidden'}`) : ''}
+        ${snapshot.judging_mode === 'automatic' && task ? `<form data-form="rejudge" data-id="${esc(submission.id)}"
+          data-judge-rejudge="${esc(submission.id)}"${canRejudge(submission) ? '' : ' hidden'}>
+          <label class="form-field"><span class="form-label">Перепроверка на версии тестов</span>
+            <select class="input" name="revision">${revisionOptions(task, assignment?.problem_revisions?.[task.id] || 1)}</select>
+          </label>
+          ${formFooter('Перепроверить')}
+        </form>` : ''}
         <form data-form="review" data-id="${esc(submission.id)}">
           <label class="form-field"><span class="form-label">Результат проверки</span>
             <select class="input" name="verdict" required>
-              <option value="" disabled${['pending', 'judge_error'].includes(submission.verdict) ? ' selected' : ''}>Выберите результат</option>
+              <option value="" disabled${['', 'pending', 'judge_error'].includes(selectedVerdict) ? ' selected' : ''}>Выберите результат</option>
               ${options}
             </select>
           </label>

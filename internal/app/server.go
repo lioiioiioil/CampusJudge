@@ -65,6 +65,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/submissions", a.handle(a.submit, signedInAccess))
 	mux.HandleFunc("PATCH /api/submissions/{id}", a.handle(a.review, teacherAccess))
 	mux.HandleFunc("POST /api/submissions/{id}/retry", a.handle(a.retryJudging, teacherAccess))
+	mux.HandleFunc("POST /api/submissions/{id}/rejudge", a.handle(a.rejudgeSubmission, teacherAccess))
 	mux.HandleFunc("GET /api/works/{id}/standings", a.handle(a.standings, signedInAccess))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

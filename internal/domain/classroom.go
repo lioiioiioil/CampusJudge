@@ -59,6 +59,7 @@ func ClassroomFor(state model.State, user model.User, now time.Time) Classroom {
 	for _, submission := range state.Submissions {
 		if teacher || (submission.UserID == user.ID && allowedWorks[submission.WorkID]) {
 			submission.JudgedAt = copyTimestamp(submission.JudgedAt)
+			submission.PastJudgments = slices.Clone(submission.PastJudgments)
 			if submission.Judging != nil {
 				progress := *submission.Judging
 				submission.Judging = &progress

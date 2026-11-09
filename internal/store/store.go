@@ -167,6 +167,7 @@ func clone(state model.State) model.State {
 	}
 	copy.Submissions = slices.Clone(state.Submissions)
 	for i := range copy.Submissions {
+		copy.Submissions[i].PastJudgments = slices.Clone(state.Submissions[i].PastJudgments)
 		if state.Submissions[i].Judging != nil {
 			progress := *state.Submissions[i].Judging
 			copy.Submissions[i].Judging = &progress

@@ -117,7 +117,7 @@ func (a *App) wakeJudge() {
 }
 
 func automaticPending(sub model.Submission) bool {
-	return sub.Verdict == "pending" && sub.ReviewerID == "" && sub.Judging != nil &&
+	return sub.ReviewerID == "" && sub.Judging != nil &&
 		(sub.Judging.Status == "queued" || sub.Judging.Status == "running")
 }
 
@@ -171,6 +171,7 @@ func (a *App) judgeLoop(ctx context.Context) {
 
 func (a *App) judgeOne(ctx context.Context, id string) error {
 	var job judge.Job
+	var targetRevision int
 	claimed := false
 	if err := a.store.Update(func(s *model.State) error {
 		for i := range s.Submissions {
@@ -179,7 +180,8 @@ func (a *App) judgeOne(ctx context.Context, id string) error {
 				continue
 			}
 			problem := problemByID(*s, sub.ProblemID)
-			tests, _ := domain.TestsAt(problem, sub.TestRevision)
+			targetRevision = targetTestRevision(*sub)
+			tests, _ := domain.TestsAt(problem, targetRevision)
 			job = judge.Job{Language: sub.Language, Source: sub.Source,
 				Tests:       append(slices.Clone(tests.Samples), tests.Tests...),
 				TimeLimitMS: problem.TimeLimitMS, MemoryLimitMB: problem.MemoryLimitMB}
@@ -212,17 +214,22 @@ func (a *App) judgeOne(ctx context.Context, id string) error {
 		err := a.store.Update(func(s *model.State) error {
 			for i := range s.Submissions {
 				sub := &s.Submissions[i]
-				if sub.ID != id || !automaticPending(*sub) || sub.Judging.Status != "running" {
+				if sub.ID != id || !automaticPending(*sub) || sub.Judging.Status != "running" || targetTestRevision(*sub) != targetRevision {
 					continue
 				}
 				now := a.now()
-				sub.JudgedAt = &now
 				if runErr != nil {
-					sub.Verdict = "judge_error"
+					if !hasEffectiveVerdict(*sub) {
+						sub.Verdict = "judge_error"
+						sub.JudgedAt = &now
+					}
 					sub.Judging.Status = "error"
 					sub.Judging.Error = "Автоматическая проверка временно недоступна. Преподаватель может проверить решение вручную."
 				} else {
+					archiveJudgment(sub, now)
 					sub.Verdict = result.Verdict
+					sub.TestRevision = targetRevision
+					sub.JudgedAt = &now
 					sub.Judging = &model.Judging{Status: "done", PassedTests: result.PassedTests,
 						TotalTests: result.TotalTests, FailedTest: result.FailedTest, TimeMS: result.TimeMS,
 						CompileOutput: result.CompileOutput}
@@ -262,7 +269,9 @@ func (a *App) UseManualJudging() error {
 		for i := range s.Submissions {
 			if automaticPending(s.Submissions[i]) {
 				sub := &s.Submissions[i]
-				sub.Verdict = "judge_error"
+				if !hasEffectiveVerdict(*sub) {
+					sub.Verdict = "judge_error"
+				}
 				sub.Judging.Status = "error"
 				sub.Judging.Error = "Автоматическая проверка выключена. Решение доступно для ручной проверки."
 			}

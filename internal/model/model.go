@@ -77,31 +77,39 @@ type Work struct {
 	CreatedAt        time.Time      `json:"created_at"`
 }
 type Submission struct {
-	ID           string     `json:"id"`
-	WorkID       string     `json:"work_id"`
-	ProblemID    string     `json:"problem_id"`
-	UserID       string     `json:"user_id"`
-	Language     string     `json:"language"`
-	Source       string     `json:"source"`
-	Verdict      string     `json:"verdict"`
-	Feedback     string     `json:"feedback"`
-	CreatedAt    time.Time  `json:"created_at"`
-	JudgedAt     *time.Time `json:"judged_at,omitempty"`
-	ReviewerID   string     `json:"reviewer_id,omitempty"`
-	Judging      *Judging   `json:"judging,omitempty"`
-	TestRevision int        `json:"test_revision,omitempty"`
+	ID            string         `json:"id"`
+	WorkID        string         `json:"work_id"`
+	ProblemID     string         `json:"problem_id"`
+	UserID        string         `json:"user_id"`
+	Language      string         `json:"language"`
+	Source        string         `json:"source"`
+	Verdict       string         `json:"verdict"`
+	Feedback      string         `json:"feedback"`
+	CreatedAt     time.Time      `json:"created_at"`
+	JudgedAt      *time.Time     `json:"judged_at,omitempty"`
+	ReviewerID    string         `json:"reviewer_id,omitempty"`
+	Judging       *Judging       `json:"judging,omitempty"`
+	TestRevision  int            `json:"test_revision,omitempty"`
+	PastJudgments []PastJudgment `json:"past_judgments,omitempty"`
+}
+
+type PastJudgment struct {
+	Verdict      string    `json:"verdict"`
+	TestRevision int       `json:"test_revision"`
+	ReplacedAt   time.Time `json:"replaced_at"`
 }
 
 // Judging contains only public progress. Hidden test inputs/answers never become
 // part of a submission or leave the worker's trusted comparison boundary.
 type Judging struct {
-	Status        string `json:"status"`
-	PassedTests   int    `json:"passed_tests"`
-	TotalTests    int    `json:"total_tests"`
-	FailedTest    int    `json:"failed_test,omitempty"`
-	TimeMS        int64  `json:"time_ms"`
-	CompileOutput string `json:"compile_output,omitempty"`
-	Error         string `json:"error,omitempty"`
+	Status         string `json:"status"`
+	TargetRevision int    `json:"target_revision,omitempty"`
+	PassedTests    int    `json:"passed_tests"`
+	TotalTests     int    `json:"total_tests"`
+	FailedTest     int    `json:"failed_test,omitempty"`
+	TimeMS         int64  `json:"time_ms"`
+	CompileOutput  string `json:"compile_output,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 type Session struct {
 	TokenHash string    `json:"token_hash"`
