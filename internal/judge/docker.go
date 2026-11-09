@@ -97,6 +97,14 @@ func (runner *DockerRunner) Check(ctx context.Context) error {
 }
 
 func (runner *DockerRunner) Run(ctx context.Context, job Job) (Result, error) {
+	return runner.checkSuite(ctx, job, false)
+}
+
+func (runner *DockerRunner) Verify(ctx context.Context, job Job) (Result, error) {
+	return runner.checkSuite(ctx, job, true)
+}
+
+func (runner *DockerRunner) checkSuite(ctx context.Context, job Job, allTests bool) (Result, error) {
 	result := Result{TotalTests: len(job.Tests)}
 	if err := validateJob(job); err != nil {
 		return result, err
@@ -113,6 +121,7 @@ func (runner *DockerRunner) Run(ctx context.Context, job Job) (Result, error) {
 	for index, test := range job.Tests {
 		executed, err := runner.executeTest(ctx, job, compiled.Files, test.Input)
 		if err != nil {
+			result.Verdict = ""
 			return result, err
 		}
 		result.TimeMS = max(result.TimeMS, executed.TimeMS)
@@ -121,12 +130,19 @@ func (runner *DockerRunner) Run(ctx context.Context, job Job) (Result, error) {
 			verdict = "wrong_answer"
 		}
 		if verdict != "" {
-			result.Verdict, result.FailedTest = verdict, index+1
-			return result, nil
+			if result.FailedTest == 0 {
+				result.Verdict, result.FailedTest = verdict, index+1
+			}
+			if !allTests {
+				return result, nil
+			}
+			continue
 		}
 		result.PassedTests++
 	}
-	result.Verdict = "accepted"
+	if result.FailedTest == 0 {
+		result.Verdict = "accepted"
+	}
 	return result, nil
 }
 

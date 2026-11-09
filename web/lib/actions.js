@@ -5,7 +5,7 @@ import { ApiError } from './api.js';
 import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
 import { buildFormCommand, sourceLimitBytes } from './forms.js';
-import { pollAuxiliary, renderAuxiliaryResult, trialRequest } from './auxiliary.js';
+import { pollAuxiliary, referenceRequest, renderAuxiliaryResult, trialRequest } from './auxiliary.js';
 import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, editWorkModal, testPair,
   topicModal, workModal, problemModal, submissionModal, standingsModal, testRevisionModal, workTestRevisionModal } from '../views/modals.js';
 import { gradebookModal } from '../views/gradebook.js';
@@ -368,15 +368,13 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     }
   }
 
-  async function runTrial(element) {
+  async function runAuxiliaryAction(form, path, body) {
     const generation = sessionGeneration;
-    const form = element.closest('form');
     const panel = form.querySelector('[data-auxiliary-result]');
-    const body = trialRequest(form, view.snapshot);
     panel.textContent = 'Запускаем код…';
     const current = () => isCurrent(generation) && dialog.open && panel.isConnected;
     try {
-      await pollAuxiliary(api, '/api/trials', body, result => {
+      await pollAuxiliary(api, path, body, result => {
         panel.innerHTML = renderAuxiliaryResult(result);
       }, current);
     } catch (error) {
@@ -394,7 +392,15 @@ export function createController({ view, api, root, dialog, toastNode, render, r
       }
     },
     'editor-tab': element => editor.selectTab(element.closest('form'), element.dataset.tab),
-    'run-trial': runTrial,
+    'run-trial': element => {
+      const form = element.closest('form');
+      return runAuxiliaryAction(form, '/api/trials', trialRequest(form, view.snapshot));
+    },
+    'run-reference': element => {
+      const form = element.closest('form');
+      const path = `/api/problems/${encodeURIComponent(form.dataset.referenceProblem)}/reference-check`;
+      return runAuxiliaryAction(form, path, referenceRequest(form, view.snapshot));
+    },
     'insert-template': element => editor.insertTemplate(element.closest('form'), view.snapshot),
     'confirm-template': element => editor.insertTemplate(element.closest('form'), view.snapshot, { replace: true }),
     'cancel-template': element => { element.closest('form').querySelector('[data-template-confirm]').hidden = true; },

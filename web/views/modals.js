@@ -1,5 +1,5 @@
 import { canRejudge, canRetryJudging, judgingResult } from '../lib/judging.js';
-import { trialControls } from '../lib/auxiliary.js';
+import { referenceControls, trialControls } from '../lib/auxiliary.js';
 import { esc, icon, date, localDateTime, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, verdictNames, standingsMark, latestSubmission } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
@@ -297,6 +297,7 @@ export function problemModal(id, workID, snapshot) {
         ${button('new-test-revision', 'Новая версия тестов', 'plus', '', `data-id="${esc(id)}"`)}
         ${assignment && original.test_revisions?.length ? button('work-test-revision', 'Версия для новых посылок', '', '', `data-id="${esc(id)}" data-work="${esc(workID)}"`) : ''}
       </div>` : ''}
+      ${teacher() && !assignment && snapshot.judging_mode === 'automatic' ? referenceControls(task, snapshot.languages) : ''}
       ${teacher() && task.tests?.length ? `<hr><h3 class="statement-heading">Скрытые тесты
         <span class="count-label">Видны только вам</span></h3>${samplesHTML(task.tests, true)}` : ''}`,
   };

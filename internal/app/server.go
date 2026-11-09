@@ -60,6 +60,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/topics", a.handle(a.createTopic, teacherAccess))
 	mux.HandleFunc("POST /api/problems", a.handle(a.createProblem, teacherAccess))
 	mux.HandleFunc("POST /api/problems/{id}/test-revisions", a.handle(a.createTestRevision, teacherAccess))
+	mux.HandleFunc("POST /api/problems/{id}/reference-check", a.handle(a.referenceCheck, teacherAccess))
 	mux.HandleFunc("POST /api/works", a.handle(a.createWork, teacherAccess))
 	mux.HandleFunc("PATCH /api/works/{id}", a.handle(a.updateWork, teacherAccess))
 	mux.HandleFunc("PATCH /api/works/{id}/problem-revisions", a.handle(a.setWorkTestRevision, teacherAccess))

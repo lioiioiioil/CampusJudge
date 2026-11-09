@@ -48,6 +48,9 @@ type auxiliaryResult struct {
 	Output          string `json:"output,omitempty"`
 	OutputTruncated bool   `json:"output_truncated,omitempty"`
 	CompileOutput   string `json:"compile_output,omitempty"`
+	PassedTests     int    `json:"passed_tests,omitempty"`
+	TotalTests      int    `json:"total_tests,omitempty"`
+	FailedTest      int    `json:"failed_test,omitempty"`
 }
 
 type cachedAuxiliaryRun struct {

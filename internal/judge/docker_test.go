@@ -157,6 +157,26 @@ func TestTrialComparesPublicOutputAndReturnsBoundedCustomOutput(t *testing.T) {
 	}
 }
 
+func TestReferenceCheckContinuesAfterFailureWithoutReturningTestData(t *testing.T) {
+	runner, fake := newFakeDocker(t)
+	job := sampleJob()
+	job.Tests = append(job.Tests, model.TestCase{Input: "private-two", Output: "2"}, model.TestCase{Input: "private-three", Output: "3"})
+	fake.tests = []protocol.TestResponse{
+		{Stdout: []byte("private-actual"), TimeMS: 4},
+		{Stdout: []byte("2"), TimeMS: 9},
+		{Stdout: []byte("3"), TimeMS: 6},
+	}
+	result, err := runner.Verify(context.Background(), job)
+	if err != nil || result != (Result{Verdict: "wrong_answer", TotalTests: 3, PassedTests: 2, FailedTest: 1, TimeMS: 9}) ||
+		fake.compiles != 1 || len(fake.requests) != 3 {
+		t.Fatalf("result=%+v err=%v compiles=%d tests=%d", result, err, fake.compiles, len(fake.requests))
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "private") {
+		t.Fatal("reference check disclosed test contents")
+	}
+}
+
 func TestExecutionVerdicts(t *testing.T) {
 	cases := []struct {
 		name     string

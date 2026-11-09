@@ -94,6 +94,21 @@ func TestDockerIntegrationVerdicts(t *testing.T) {
 	}
 }
 
+func TestDockerIntegrationTrialAndReference(t *testing.T) {
+	runner, _ := integrationRunner(t)
+	job := Job{Language: "python", Source: "print(int(input()) * 2)",
+		Tests: []model.TestCase{{Input: "4\n"}}, TimeLimitMS: 1000, MemoryLimitMB: 128}
+	trial, err := runner.Trial(context.Background(), job, false)
+	if err != nil || trial.Verdict != "completed" || trial.Output != "8\n" || trial.OutputTruncated {
+		t.Fatalf("trial=%+v err=%v", trial, err)
+	}
+	job.Tests = []model.TestCase{{Input: "4\n", Output: "9"}, {Input: "-1\n", Output: "-2"}}
+	report, err := runner.Verify(context.Background(), job)
+	if err != nil || report.Verdict != "wrong_answer" || report.FailedTest != 1 || report.PassedTests != 1 || report.TotalTests != 2 {
+		t.Fatalf("reference=%+v err=%v", report, err)
+	}
+}
+
 func TestDockerIntegrationIsolationAndFreshWorkspace(t *testing.T) {
 	runner, _ := integrationRunner(t)
 	job := sampleJob()

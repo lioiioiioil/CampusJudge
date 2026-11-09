@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pollAuxiliary, renderAuxiliaryResult, trialRequest } from '../lib/auxiliary.js';
+import { pollAuxiliary, referenceControls, referenceRequest, renderAuxiliaryResult, trialRequest } from '../lib/auxiliary.js';
 
 test('trial request includes only one input selector and preserves custom whitespace', () => {
   const form = {
@@ -55,4 +55,20 @@ test('trial output and diagnostics are escaped', () => {
   assert.match(html, /&lt;img src=x&gt;/);
   assert.match(html, /первая часть/);
   assert.doesNotMatch(html, /<script>|<img/);
+});
+
+test('reference run chooses a concrete test revision and renders only the report', () => {
+  const languages = [{ id: 'python', name: 'Python', automatic: true }, { id: 'other', name: 'Другое', automatic: false }];
+  const problem = { id: 'p"1', test_revisions: [{ number: 2, tests: [{ input: 'private input', output: 'private expected' }] }] };
+  const controls = referenceControls(problem, languages);
+  assert.match(controls, /data-reference-problem="p&quot;1"/);
+  assert.match(controls, /value="2" selected/);
+  assert.doesNotMatch(controls, /private|value="other"/);
+  const form = { elements: { source: { value: 'print(2)' }, language: { value: 'python' }, test_revision: { value: '2' } } };
+  assert.deepEqual(referenceRequest(form, { user: { id: 'teacher' }, languages }),
+    { actor_id: 'teacher', source: 'print(2)', language: 'python', test_revision: 2 });
+  const result = renderAuxiliaryResult({ status: 'done', verdict: 'wrong_answer', time_ms: 5, passed_tests: 1, total_tests: 3, failed_test: 2 });
+  assert.match(result, /1 из 3 тестов/);
+  assert.match(result, /тест № 2/);
+  assert.doesNotMatch(result, /Фактический вывод/);
 });

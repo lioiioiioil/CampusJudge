@@ -122,6 +122,17 @@ test('trial selector and statement use the same version bound to the work', () =
   assert.doesNotMatch(body, />2 3</);
 });
 
+test('auxiliary controls are scoped to student editor or teacher problem bank', () => {
+  const teacher = fixture();
+  const pupil = fixture('student');
+  teacher.snapshot.judging_mode = pupil.snapshot.judging_mode = 'automatic';
+  teacher.snapshot.languages[0].automatic = pupil.snapshot.languages[0].automatic = true;
+  assert.match(problemModal('p', undefined, teacher.snapshot).body, /data-action="run-reference"/);
+  assert.doesNotMatch(problemModal('p', 'w', teacher.snapshot).body, /data-action="run-trial"/);
+  assert.match(problemModal('p', 'w', pupil.snapshot).body, /data-action="run-trial"/);
+  assert.doesNotMatch(problemModal('p', 'w', pupil.snapshot).body, /data-action="run-reference"/);
+});
+
 test('empty class progress and Russian sample count are accurate', () => {
   const view = fixture();
   assert.equal(workProgress(view.snapshot.works[0], view.snapshot).caption, 'Пока нет участников');

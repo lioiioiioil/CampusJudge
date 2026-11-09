@@ -52,12 +52,45 @@ export function trialControls(samples = []) {
   </details>`;
 }
 
+export function referenceRequest(form, snapshot) {
+  const revision = Number(form.elements.test_revision.value);
+  if (!Number.isSafeInteger(revision) || revision < 1) throw new Error('Выберите версию тестов.');
+  return { ...sourceFields(form, snapshot), test_revision: revision };
+}
+
+export function referenceControls(problem, languages) {
+  const supported = languages.filter(language => language.automatic);
+  const revisions = [1, ...(problem.test_revisions || []).map(revision => revision.number)];
+  return `<details class="activity">
+    <summary>Проверить эталон</summary>
+    <form data-reference-problem="${esc(problem.id)}">
+      <div class="form-grid">
+        <label class="form-field"><span class="form-label">Язык эталона</span>
+          <select class="input" name="language">${supported.map(language =>
+            `<option value="${esc(language.id)}">${esc(language.name)}</option>`).join('')}</select>
+        </label>
+        <label class="form-field"><span class="form-label">Версия тестов</span>
+          <select class="input" name="test_revision">${revisions.map(number =>
+            `<option value="${esc(number)}"${number === revisions.at(-1) ? ' selected' : ''}>Версия ${esc(number)}</option>`).join('')}</select>
+        </label>
+      </div>
+      <label class="form-field"><span class="form-label">Код эталона</span>
+        <textarea class="input" name="source" rows="6" spellcheck="false"></textarea>
+      </label>
+      <button type="button" class="btn" data-action="run-reference">Проверить эталон</button>
+      <div data-auxiliary-result role="status" aria-live="polite"></div>
+    </form>
+  </details>`;
+}
+
 export function renderAuxiliaryResult(result) {
   if (result.status === 'running') return '<p class="help-text">Код выполняется…</p>';
   if (result.status === 'error') return `<p class="form-error">${esc(result.error)}</p>`;
   const title = result.verdict === 'completed' ? 'Выполнено' : verdictNames[result.verdict] || result.verdict;
-  const hasOutput = result.output || ['completed', 'accepted', 'wrong_answer'].includes(result.verdict);
+  const hasOutput = !result.total_tests && (result.output || ['completed', 'accepted', 'wrong_answer'].includes(result.verdict));
   return `<p><strong>${esc(title)}</strong> · ${esc(result.time_ms)} мс</p>
+    ${result.total_tests ? `<p>Пройдено ${esc(result.passed_tests || 0)} из ${esc(result.total_tests)} тестов.</p>` : ''}
+    ${result.failed_test ? `<p>Первый непройденный тест № ${esc(result.failed_test)}.</p>` : ''}
     ${hasOutput ? `<p class="help-text">Фактический вывод</p><pre class="source-preview">${esc(result.output || '(пусто)')}</pre>` : ''}
     ${result.output_truncated ? '<p class="help-text">Показана только первая часть вывода.</p>' : ''}
     ${result.compile_output ? `<pre class="judge-diagnostics">${esc(result.compile_output)}</pre>` : ''}`;

@@ -51,6 +51,11 @@ type TrialRunner interface {
 	Trial(ctx context.Context, job Job, compareOutput bool) (TrialResult, error)
 }
 
+// ReferenceRunner evaluates the full suite and reports only verdicts and counts.
+type ReferenceRunner interface {
+	Verify(context.Context, Job) (Result, error)
+}
+
 func Supports(language string) bool {
 	_, ok := protocol.Language(language)
 	return ok
