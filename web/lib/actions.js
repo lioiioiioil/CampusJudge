@@ -14,10 +14,15 @@ function readFields(form) {
   fields.group_ids = values.getAll('group_ids');
   fields.problem_ids = values.getAll('problem_ids');
   const readTests = kind => Array.from(form.querySelectorAll(`[data-test="${kind}"]`))
-    .map(element => ({
-      input: element.querySelector(`[name="${kind}_input"]`).value,
-      output: element.querySelector(`[name="${kind}_output"]`).value,
-    }));
+    .map(element => {
+      const original = element.dataset.originalTest ? JSON.parse(element.dataset.originalTest) : null;
+      const read = name => {
+        const value = element.querySelector(`[name="${kind}_${name}"]`).value;
+        // The browser normalizes textarea line endings. Retain unchanged test bytes.
+        return original?.[name]?.replace(/\r\n?/g, '\n').replace(/\0/g, '\uFFFD') === value ? original[name] : value;
+      };
+      return { input: read('input'), output: read('output'), existing: original !== null };
+    });
   fields.samples = readTests('sample');
   fields.tests = readTests('hidden');
   return fields;
@@ -323,6 +328,10 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'create-topic': () => openModal(newTopicModal()),
     'create-group': () => openModal(newGroupModal()),
     'create-problem': () => openModal(newProblemModal()),
+    'copy-problem': element => {
+      const source = findByID(view.snapshot.problems, element.dataset.id);
+      if (view.snapshot.user.role === 'teacher' && source) openModal(newProblemModal(source));
+    },
     'create-work': () => createWork('homework'),
     'create-homework': () => createWork('homework'),
     'create-contest': () => createWork('contest'),

@@ -103,8 +103,8 @@ function editDraft(fields, { draft }) {
 
 function testCases(fields, name) {
   return (fields[name] || [])
-    .map(test => ({ input: String(test.input ?? ''), output: String(test.output ?? '') }))
-    .filter(test => test.input !== '' || test.output !== '');
+    .filter(test => test.existing || String(test.input ?? '') !== '' || String(test.output ?? '') !== '')
+    .map(test => ({ input: String(test.input ?? ''), output: String(test.output ?? '') }));
 }
 
 function problem(fields) {

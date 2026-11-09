@@ -5,7 +5,7 @@ import { workProgress } from '../lib/components.js';
 import { renderDashboard } from '../views/dashboard.js';
 import { renderTopics, renderWorks, renderSubmissions } from '../views/pages.js';
 import { renderLayout } from '../views/layout.js';
-import { editWorkModal, problemModal, submissionModal, standingsModal, workModal } from '../views/modals.js';
+import { editWorkModal, newProblemModal, problemModal, submissionModal, standingsModal, workModal } from '../views/modals.js';
 
 function fixture(role = 'teacher') {
   const view = createViewState();
@@ -55,6 +55,24 @@ test('empty class progress and Russian sample count are accurate', () => {
   assert.equal(workProgress(view.snapshot.works[0], view.snapshot).caption, 'Пока нет участников');
   assert.match(renderTopics(view.snapshot, view), /1 пример/);
   assert.doesNotMatch(renderTopics(view.snapshot, view), /1 примеров/);
+});
+
+test('problem copy form carries both test sets and escapes copied text', () => {
+  const teacher = fixture();
+  const pupil = fixture('student');
+  assert.match(renderTopics(teacher.snapshot, teacher), /data-action="copy-problem" data-id="p"/);
+  assert.doesNotMatch(renderTopics(pupil.snapshot, pupil), /data-action="copy-problem"/);
+  const source = teacher.snapshot.problems[0];
+  const original = structuredClone(source);
+  const form = newProblemModal(source).body;
+  assert.match(form, /data-form="problem"/);
+  assert.match(form, /name="title"[^>]*value="Задача"/);
+  assert.match(form, /name="time_limit_ms"[^>]*value="1000"/);
+  assert.match(form, /data-test="sample" data-original-test="[^"]*2 3/);
+  assert.match(form, /data-test="hidden" data-original-test="[^"]*secret/);
+  assert.match(form, /&lt;script&gt;alert/);
+  assert.doesNotMatch(form, /<script>/);
+  assert.deepEqual(source, original);
 });
 
 test('draft work form preselects its ordered tasks and is only offered before submissions', () => {

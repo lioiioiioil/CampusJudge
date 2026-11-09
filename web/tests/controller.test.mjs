@@ -64,13 +64,13 @@ function harness(t, api, { authenticated = true, editor } = {}) {
     const element = { dataset: { action }, disabled: false, isConnected: true };
     return listeners.click({ target: { closest: () => element }, preventDefault() {} });
   }
-  function submit(name, values, context = {}) {
+  function submit(name, values, context = {}, testRows = {}) {
     const submitButton = { innerHTML: 'Сохранить', isConnected: true };
     const error = { textContent: '' };
     const form = {
       dataset: { form: name, ...context }, values,
       querySelector: selector => selector === '.form-error' ? error : submitButton,
-      querySelectorAll: () => [],
+      querySelectorAll: selector => testRows[selector] || [],
     };
     return listeners.submit({ target: { closest: () => form }, preventDefault() {} });
   }
@@ -86,6 +86,28 @@ function harness(t, api, { authenticated = true, editor } = {}) {
     contentRenders: () => contentRenders };
 
 }
+
+test('saving a problem copy creates a new problem with original unchanged test bytes', async t => {
+  const requests = [];
+  const h = harness(t, {
+    request: async (...args) => { requests.push(args); },
+    snapshot: async () => snapshot(),
+  });
+  const row = (input, output, original) => ({
+    dataset: original ? { originalTest: JSON.stringify(original) } : {},
+    querySelector: selector => ({ value: selector.endsWith('_input"]') ? input : output }),
+  });
+  await h.submit('problem', { title: 'Копия', statement: 'Сложите числа.', time_limit_ms: '1000', memory_limit_mb: '128' }, {}, {
+    '[data-test="sample"]': [row('\n2 3\n', '5\n', { input: '\r\n2 3\r\n', output: '5\r\n' }), row('', '')],
+    '[data-test="hidden"]': [row('', '', { input: '', output: '' }), row('8 9', '17', { input: '8 9', output: 'old' })],
+  });
+  assert.deepEqual(requests, [['/api/problems', { method: 'POST', body: {
+    title: 'Копия', statement: 'Сложите числа.', input_format: '', output_format: '',
+    time_limit_ms: 1000, memory_limit_mb: 128,
+    samples: [{ input: '\r\n2 3\r\n', output: '5\r\n' }],
+    tests: [{ input: '', output: '' }, { input: '8 9', output: '17' }],
+  } }]]);
+});
 
 test('late refresh cannot restore a logged-out user or show a stale success toast', async t => {
   const oldRead = deferred();

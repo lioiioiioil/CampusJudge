@@ -30,9 +30,11 @@ export function newGroupModal() {
 }
 
 export function testPair(kind, index = 0, test = {}) {
-  return `<div class="test-pair" data-test="${kind}">
+  const original = Object.hasOwn(test, 'input') || Object.hasOwn(test, 'output');
+  const originalAttr = original ? ` data-original-test="${esc(JSON.stringify({ input: test.input ?? '', output: test.output ?? '' }))}"` : '';
+  return `<div class="test-pair" data-test="${kind}"${originalAttr}>
     <div class="test-pair-head"><span>${kind === 'sample' ? 'Пример' : 'Скрытый тест'} ${index + 1}</span>
-      ${index ? '<button type="button" class="text-button" data-action="remove-test">Убрать</button>' : ''}
+      ${index || original ? '<button type="button" class="text-button" data-action="remove-test">Убрать</button>' : ''}
     </div>
     <div class="form-grid">
       ${field('Входные данные', `${kind}_input`, { type: 'textarea', value: test.input, placeholder: '2 3' })}
@@ -41,30 +43,33 @@ export function testPair(kind, index = 0, test = {}) {
   </div>`;
 }
 
-export function newProblemModal() {
+export function newProblemModal(source) {
+  const pairs = (kind, tests) => tests?.length ? tests.map((test, index) => testPair(kind, index, test)).join('') : testPair(kind);
   return {
-    title: 'Новая задача', subtitle: 'Условие и примеры видны ученикам, скрытые тесты — только преподавателю.', wide: true,
+    title: source ? 'Копировать задачу' : 'Новая задача',
+    subtitle: source ? 'Отредактируйте копию и сохраните её в банке задач.'
+      : 'Условие и примеры видны ученикам, скрытые тесты — только преподавателю.', wide: true,
     body: `<form data-form="problem">
-      ${field('Название', 'title', { required: true, placeholder: 'Например, сумма двух чисел' })}
-      ${field('Условие', 'statement', { type: 'textarea', required: true, rows: 4, placeholder: 'Опишите задачу простым и точным языком' })}
+      ${field('Название', 'title', { required: true, value: source?.title, placeholder: 'Например, сумма двух чисел' })}
+      ${field('Условие', 'statement', { type: 'textarea', required: true, value: source?.statement, rows: 4, placeholder: 'Опишите задачу простым и точным языком' })}
       <div class="form-grid">
-        ${field('Формат входных данных', 'input_format', { type: 'textarea' })}
-        ${field('Формат выходных данных', 'output_format', { type: 'textarea' })}
+        ${field('Формат входных данных', 'input_format', { type: 'textarea', value: source?.input_format })}
+        ${field('Формат выходных данных', 'output_format', { type: 'textarea', value: source?.output_format })}
       </div>
       <div class="form-grid">
-        ${field('Лимит времени, мс', 'time_limit_ms', { type: 'number', value: 2000, min: 100, max: 30000, required: true })}
-        ${field('Лимит памяти, МБ', 'memory_limit_mb', { type: 'number', value: 256, min: 16, max: 2048, required: true })}
+        ${field('Лимит времени, мс', 'time_limit_ms', { type: 'number', value: source?.time_limit_ms ?? 2000, min: 100, max: 30000, required: true })}
+        ${field('Лимит памяти, МБ', 'memory_limit_mb', { type: 'number', value: source?.memory_limit_mb ?? 256, min: 16, max: 2048, required: true })}
       </div>
       <div class="section-label">Примеры
         <button type="button" class="text-button" data-action="add-test" data-kind="sample">${icon('plus', 13)} Добавить</button>
       </div>
-      <div data-test-list="sample">${testPair('sample')}</div>
+      <div data-test-list="sample">${pairs('sample', source?.samples)}</div>
       <div class="section-label">Скрытые тесты
         <button type="button" class="text-button" data-action="add-test" data-kind="hidden">${icon('plus', 13)} Добавить</button>
       </div>
       <p class="help-text">Скрытые тесты используются при проверке и не показываются ученикам.</p>
-      <div data-test-list="hidden">${testPair('hidden')}</div>
-      ${formFooter('Добавить задачу')}
+      <div data-test-list="hidden">${pairs('hidden', source?.tests)}</div>
+      ${formFooter(source ? 'Сохранить копию' : 'Добавить задачу')}
     </form>`,
   };
 }

@@ -56,7 +56,8 @@ function problemBank(snapshot, search) {
   const rows = problems.map(problem => `<tr>
     <td class="cell-title">${esc(problem.title)}</td><td>${problem.time_limit_ms} мс</td>
     <td>${problem.memory_limit_mb} МБ</td><td>${plural((problem.tests || []).length, 'скрытый тест', 'скрытых теста', 'скрытых тестов')} · ${plural((problem.samples || []).length, 'пример', 'примера', 'примеров')}</td>
-    <td><button class="text-button" data-action="problem-preview" data-id="${esc(problem.id)}">Условие ${icon('arrow', 12)}</button></td>
+    <td><button class="text-button" data-action="problem-preview" data-id="${esc(problem.id)}">Условие ${icon('arrow', 12)}</button>
+      <button class="text-button" data-action="copy-problem" data-id="${esc(problem.id)}">Копировать ${icon('copy', 12)}</button></td>
   </tr>`).join('');
   return `<section class="activity">
     <div class="section-heading"><h2>Банк задач <span class="count-label">${snapshot.problems.length}</span></h2>

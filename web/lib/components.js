@@ -118,7 +118,7 @@ export function field(label, name, options = {}) {
     ${min !== undefined ? `min="${min}"` : ''} ${max !== undefined ? `max="${max}"` : ''}
     ${step !== undefined ? `step="${esc(step)}"` : ''} placeholder="${esc(placeholder)}"`;
   const control = type === 'textarea'
-    ? `<textarea class="input" ${attrs} ${rows ? `rows="${rows}"` : ''}>${esc(value)}</textarea>`
+    ? `<textarea class="input" ${attrs} ${rows ? `rows="${rows}"` : ''}>\n${esc(value)}</textarea>`
     : `<input class="input" type="${esc(type)}" ${attrs} value="${esc(value)}">`;
   return `<label class="form-field"><span class="form-label">${esc(label)}</span>${control}
     ${hint ? `<span class="form-hint">${esc(hint)}</span>` : ''}
