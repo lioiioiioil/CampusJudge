@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildFormCommand, sourceLimitBytes } from '../lib/forms.js';
+import { localDateTime } from '../lib/format.js';
 
 const homework = {
   title: ' Практика ', description: 'После занятия', kind: 'homework', topic_id: '',
@@ -27,6 +28,21 @@ test('work rejects missing audience/tasks and reversed or invalid dates', () => 
   assert.throws(() => buildFormCommand('work', {
     ...homework, starts_at: '2026-11-05T11:00:00Z', ends_at: '2026-11-05T10:00:00Z',
   }), /позже/);
+});
+
+test('draft edit sends editable fields only and preserves an unchanged deadline exactly', () => {
+  const draft = { id: 'draft/a', kind: 'homework', ends_at: '2026-11-05T11:00:30.123456789Z' };
+  const result = buildFormCommand('work-draft', {
+    ...homework, description: ' Описание ', group_ids: [], problem_ids: ['b', 'a'],
+    ends_at: localDateTime(draft.ends_at),
+  }, { draft });
+  assert.equal(result.path, '/api/works/draft%2Fa/draft');
+  assert.equal(result.method, 'PATCH');
+  assert.deepEqual(result.body, {
+    title: 'Практика', description: ' Описание ', topic_id: '', group_ids: [], problem_ids: ['b', 'a'],
+    ends_at: draft.ends_at,
+  });
+  assert.equal(buildFormCommand('work-draft', { ...homework, ends_at: '' }, { draft }).body.ends_at, undefined);
 });
 
 test('submission preserves source whitespace and binds to the opened work', () => {

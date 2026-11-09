@@ -1,3 +1,5 @@
+import { localDateTime } from './format.js';
+
 export const sourceLimitBytes = 128 * 1024;
 
 /**
@@ -21,10 +23,10 @@ function positiveInteger(fields, name, label) {
   return value;
 }
 
-function selected(fields, name, label) {
+function selected(fields, name, label, required = true) {
   const values = Array.isArray(fields[name]) ? fields[name] : [];
   const result = [...new Set(values.map(String).filter(Boolean))];
-  if (!result.length) throw new Error(`Выберите хотя бы одну ${label}.`);
+  if (required && !result.length) throw new Error(`Выберите хотя бы одну ${label}.`);
   return result;
 }
 
@@ -62,27 +64,41 @@ function register(fields) {
   };
 }
 
+function workDetails(fields, draft) {
+  const body = {
+    title: required(fields, 'title', 'Название работы'),
+    description: draft ? String(fields.description ?? '') : text(fields, 'description'),
+    topic_id: text(fields, 'topic_id'),
+    group_ids: selected(fields, 'group_ids', 'группу', !draft),
+    problem_ids: selected(fields, 'problem_ids', 'задачу', !draft),
+  };
+  for (const [name, label] of [['starts_at', 'начало доступа'], ['ends_at', 'окончание']]) {
+    if (!fields[name]) continue;
+    const original = draft?.[name];
+    const value = instant(fields[name], label);
+    // Preserve the exact stored instant when the displayed local time is unchanged.
+    body[name] = original && localDateTime(original) === localDateTime(fields[name]) ? original : value;
+  }
+  if (!draft && body.starts_at && body.ends_at && body.ends_at <= body.starts_at) {
+    throw new Error('Окончание работы должно быть позже начала.');
+  }
+  return body;
+}
+
 function work(fields) {
   const kind = text(fields, 'kind');
   if (!['homework', 'contest'].includes(kind)) throw new Error('Выберите формат работы.');
   const status = text(fields, 'status');
   if (!['draft', 'open'].includes(status)) throw new Error('Выберите доступ к работе.');
-  const body = {
-    title: required(fields, 'title', 'Название работы'),
-    description: text(fields, 'description'),
-    kind,
-    topic_id: text(fields, 'topic_id'),
-    group_ids: selected(fields, 'group_ids', 'группу'),
-    problem_ids: selected(fields, 'problem_ids', 'задачу'),
-    status,
-  };
-  if (fields.starts_at) body.starts_at = instant(fields.starts_at, 'начало доступа');
-  if (fields.ends_at) body.ends_at = instant(fields.ends_at, 'окончание');
-  if (body.starts_at && body.ends_at && body.ends_at <= body.starts_at) {
-    throw new Error('Окончание работы должно быть позже начала.');
-  }
-  return command('/api/works', body, status === 'open' ? 'Работа открыта ученикам' : 'Черновик сохранён',
+  return command('/api/works', { ...workDetails(fields), kind, status },
+    status === 'open' ? 'Работа открыта ученикам' : 'Черновик сохранён',
     kind === 'contest' ? 'contests' : 'homework');
+}
+
+function editDraft(fields, { draft }) {
+  if (!draft?.id) throw new Error('Черновик не найден. Откройте работу заново.');
+  return command(`/api/works/${encodeURIComponent(draft.id)}/draft`, workDetails(fields, draft),
+    'Черновик обновлён', draft.kind === 'contest' ? 'contests' : 'homework', 'PATCH');
 }
 
 function testCases(fields, name) {
@@ -161,6 +177,7 @@ const builders = {
   login,
   register,
   work,
+  'work-draft': editDraft,
   problem,
   'test-revision': testRevision,
   'work-test-revision': workTestRevision,

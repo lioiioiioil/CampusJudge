@@ -46,6 +46,14 @@ func CanSubmit(work model.Work, user model.User, problemID string, now time.Time
 	return nil
 }
 
+// CanEditDraft protects the structure of any work with existing submissions,
+// including a previously published work returned to draft.
+func CanEditDraft(work model.Work, submissions []model.Submission) bool {
+	return work.Status == "draft" && !slices.ContainsFunc(submissions, func(submission model.Submission) bool {
+		return submission.WorkID == work.ID
+	})
+}
+
 func ValidWorkStatus(status string) bool {
 	return status == "draft" || status == "open" || status == "closed"
 }

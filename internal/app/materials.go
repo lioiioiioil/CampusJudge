@@ -1,8 +1,10 @@
 package app
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -110,44 +112,43 @@ func validateTestCases(samples, hidden []model.TestCase) error {
 	}
 	return nil
 }
+
+type workDetails struct {
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	TopicID     string     `json:"topic_id"`
+	GroupIDs    []string   `json:"group_ids"`
+	ProblemIDs  []string   `json:"problem_ids"`
+	StartsAt    *time.Time `json:"starts_at"`
+	EndsAt      *time.Time `json:"ends_at"`
+}
+
+func (in workDetails) apply(work model.Work) model.Work {
+	work.Title = strings.TrimSpace(in.Title)
+	work.Description = in.Description
+	work.TopicID = in.TopicID
+	work.GroupIDs = append([]string{}, in.GroupIDs...)
+	work.ProblemIDs = append([]string{}, in.ProblemIDs...)
+	work.ProblemRevisions = maps.Clone(work.ProblemRevisions)
+	maps.DeleteFunc(work.ProblemRevisions, func(id string, _ int) bool { return !slices.Contains(work.ProblemIDs, id) })
+	work.StartsAt = in.StartsAt
+	work.EndsAt = in.EndsAt
+	return work
+}
+
 func (a *App) createWork(w http.ResponseWriter, r *http.Request, _ model.User) error {
 	var in struct {
-		Title       string     `json:"title"`
-		Description string     `json:"description"`
-		Kind        string     `json:"kind"`
-		TopicID     string     `json:"topic_id"`
-		GroupIDs    []string   `json:"group_ids"`
-		ProblemIDs  []string   `json:"problem_ids"`
-		Status      string     `json:"status"`
-		StartsAt    *time.Time `json:"starts_at"`
-		EndsAt      *time.Time `json:"ends_at"`
+		workDetails
+		Kind   string `json:"kind"`
+		Status string `json:"status"`
 	}
 	if err := readJSON(w, r, &in); err != nil {
 		return err
 	}
-	in.Title = strings.TrimSpace(in.Title)
 	if in.Status == "" {
 		in.Status = "draft"
 	}
-	work := model.Work{
-		ID:          newID("work"),
-		Title:       in.Title,
-		Description: in.Description,
-		Kind:        in.Kind,
-		TopicID:     in.TopicID,
-		GroupIDs:    in.GroupIDs,
-		ProblemIDs:  in.ProblemIDs,
-		Status:      in.Status,
-		StartsAt:    in.StartsAt,
-		EndsAt:      in.EndsAt,
-		CreatedAt:   a.now(),
-	}
-	if work.GroupIDs == nil {
-		work.GroupIDs = []string{}
-	}
-	if work.ProblemIDs == nil {
-		work.ProblemIDs = []string{}
-	}
+	work := in.apply(model.Work{ID: newID("work"), Kind: in.Kind, Status: in.Status, CreatedAt: a.now()})
 	if err := a.store.Update(func(s *model.State) error {
 		if err := domain.ValidateWork(*s, work); err != nil {
 			return fail(http.StatusBadRequest, err.Error())
@@ -160,6 +161,37 @@ func (a *App) createWork(w http.ResponseWriter, r *http.Request, _ model.User) e
 	writeJSON(w, 201, work)
 	return nil
 }
+
+func (a *App) editWorkDraft(w http.ResponseWriter, r *http.Request, _ model.User) error {
+	var in workDetails
+	if err := readJSON(w, r, &in); err != nil {
+		return err
+	}
+	var result model.Work
+	if err := a.store.Update(func(s *model.State) error {
+		for i, work := range s.Works {
+			if work.ID != r.PathValue("id") {
+				continue
+			}
+			if !domain.CanEditDraft(work, s.Submissions) {
+				return fail(http.StatusConflict, "Редактировать можно только черновик без посылок")
+			}
+			updated := in.apply(work)
+			if err := domain.ValidateWork(*s, updated); err != nil {
+				return fail(http.StatusBadRequest, err.Error())
+			}
+			s.Works[i] = updated
+			result = updated
+			return nil
+		}
+		return fail(http.StatusNotFound, "Работа не найдена")
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, 200, result)
+	return nil
+}
+
 func (a *App) updateWork(w http.ResponseWriter, r *http.Request, _ model.User) error {
 	var in struct {
 		Status string `json:"status"`

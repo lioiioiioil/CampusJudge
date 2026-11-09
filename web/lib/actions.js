@@ -5,7 +5,7 @@ import { ApiError } from './api.js';
 import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
 import { buildFormCommand, sourceLimitBytes } from './forms.js';
-import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, testPair,
+import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, editWorkModal, testPair,
   topicModal, workModal, problemModal, submissionModal, standingsModal, testRevisionModal, workTestRevisionModal } from '../views/modals.js';
 
 function readFields(form) {
@@ -192,6 +192,9 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     try {
       const command = buildFormCommand(form.dataset.form, readFields(form), {
         id: form.dataset.id, workID: form.dataset.work, problemID: form.dataset.problem,
+        draft: form.dataset.form === 'work-draft' ? {
+          id: form.dataset.id, kind: form.dataset.kind, starts_at: form.dataset.startsAt, ends_at: form.dataset.endsAt,
+        } : undefined,
       });
       authenticating = Boolean(command.auth);
       if (authenticating) {
@@ -324,6 +327,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'create-homework': () => createWork('homework'),
     'create-contest': () => createWork('contest'),
     work: element => openModal(workModal(element.dataset.id, view.snapshot)),
+    'edit-draft': element => openModal(editWorkModal(element.dataset.id, view.snapshot)),
     'topic-detail': element => openModal(topicModal(element.dataset.id, view.snapshot)),
     problem: element => openModal(problemModal(element.dataset.id, element.dataset.work, view.snapshot)),
     'problem-preview': element => openModal(problemModal(element.dataset.id, undefined, view.snapshot)),

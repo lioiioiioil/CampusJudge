@@ -19,6 +19,9 @@ JSON, один origin с интерфейсом. Изменяющие запро
 - `POST /api/works` `{title,description,kind:"homework"|"contest",topic_id,group_ids:[],problem_ids:[],status:"draft"|"open"|"closed",starts_at?:RFC3339,ends_at?:RFC3339}` → работа.
 - `PATCH /api/works/{id}` `{status:"draft"|"open"|"closed"}` → работа.
 - `PATCH /api/works/{id}/problem-revisions` `{problem_id,revision}` → работа с версией для новых посылок. Уже отправленные посылки сохраняют свою версию.
+- `PATCH /api/works/{id}/draft` `{title,description,topic_id,group_ids:[],problem_ids:[],starts_at?:RFC3339,ends_at?:RFC3339}` → обновлённый черновик.
+  Метод доступен преподавателю. Сохраняет тип и статус работы. Отсутствующие сроки сбрасываются.
+  Открытая или закрытая работа и черновик с посылками дают `409`.
 - `POST /api/submissions` `{work_id,problem_id,language,source}` → посылка.
 - `PATCH /api/submissions/{id}` `{verdict,feedback}` → проверенная посылка.
 - `GET /api/works/{id}/standings` → `{rows:[{user_id,name,solved,penalty,problems:{problem_id:{solved:boolean,attempts:number,minutes:number}}}]}`.

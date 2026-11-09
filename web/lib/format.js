@@ -56,6 +56,14 @@ export function date(value, withTime = false) {
   });
 }
 
+export function localDateTime(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  parsed.setTime(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+  return parsed.toISOString().slice(0, 23).replace(/\.000$/, '').replace(/:00$/, '');
+}
+
 export function safeLesson(value) {
   try {
     const url = new URL(value);

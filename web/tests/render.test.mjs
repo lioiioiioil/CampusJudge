@@ -5,7 +5,7 @@ import { workProgress } from '../lib/components.js';
 import { renderDashboard } from '../views/dashboard.js';
 import { renderTopics, renderWorks, renderSubmissions } from '../views/pages.js';
 import { renderLayout } from '../views/layout.js';
-import { problemModal, submissionModal, standingsModal } from '../views/modals.js';
+import { editWorkModal, problemModal, submissionModal, standingsModal, workModal } from '../views/modals.js';
 
 function fixture(role = 'teacher') {
   const view = createViewState();
@@ -55,6 +55,28 @@ test('empty class progress and Russian sample count are accurate', () => {
   assert.equal(workProgress(view.snapshot.works[0], view.snapshot).caption, 'Пока нет участников');
   assert.match(renderTopics(view.snapshot, view), /1 пример/);
   assert.doesNotMatch(renderTopics(view.snapshot, view), /1 примеров/);
+});
+
+test('draft work form preselects its ordered tasks and is only offered before submissions', () => {
+  const { snapshot } = fixture();
+  const work = snapshot.works[0];
+  work.status = 'draft';
+  work.title = '<Черновик>';
+  work.problem_ids = ['second', 'p'];
+  snapshot.problems.push({ id: 'second', title: 'Вторая задача' });
+  const submitted = snapshot.submissions.pop();
+  assert.match(workModal('w', snapshot).body, /data-action="edit-draft"/);
+  const body = editWorkModal('w', snapshot).body;
+  assert.match(body, /value="&lt;Черновик&gt;"/);
+  assert.match(body, /name="group_ids" value="g" checked/);
+  assert.match(body, /name="problem_ids" value="second" checked[\s\S]*name="problem_ids" value="p" checked/);
+  assert.doesNotMatch(body, /name="(?:kind|status)"/);
+  snapshot.submissions.push(submitted);
+  assert.equal(editWorkModal('w', snapshot), null);
+  assert.doesNotMatch(workModal('w', snapshot).body, /data-action="edit-draft"/);
+  snapshot.submissions.length = 0;
+  snapshot.user.role = 'student';
+  assert.equal(editWorkModal('w', snapshot), null);
 });
 
 test('standings renders +1 for exactly one prior failure', () => {

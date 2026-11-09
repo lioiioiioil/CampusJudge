@@ -1,5 +1,5 @@
 import { judgingResult } from '../lib/judging.js';
-import { esc, icon, date, plural, safeLesson } from '../lib/format.js';
+import { esc, icon, date, localDateTime, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, verdictNames, standingsMark, latestSubmission } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
   workTable, workProgress, submissionsTable } from '../lib/components.js';
@@ -69,48 +69,70 @@ export function newProblemModal() {
   };
 }
 
-function workAudience(snapshot) {
+function workAudience(snapshot, draft) {
+  const groupIDs = new Set(draft?.group_ids ?? snapshot.groups.slice(0, 1).map(group => group.id));
+  const problemIDs = draft?.problem_ids ?? [];
+  const problems = [...problemIDs.map(id => findByID(snapshot.problems, id)).filter(Boolean),
+    ...snapshot.problems.filter(problem => !problemIDs.includes(problem.id))];
   return `<fieldset class="fieldset"><legend>Для каких групп</legend><div class="checkbox-list">
-    ${snapshot.groups.map((group, index) => `<label class="checkbox-label">
-      <input type="checkbox" name="group_ids" value="${esc(group.id)}"${index === 0 ? ' checked' : ''}>${esc(group.name)}
+    ${snapshot.groups.map(group => `<label class="checkbox-label">
+      <input type="checkbox" name="group_ids" value="${esc(group.id)}"${groupIDs.has(group.id) ? ' checked' : ''}>${esc(group.name)}
     </label>`).join('')}
   </div></fieldset>
   <fieldset class="fieldset"><legend>Задачи в работе</legend><div class="checkbox-list">
-    ${snapshot.problems.map(problem => `<label class="checkbox-label">
-      <input type="checkbox" name="problem_ids" value="${esc(problem.id)}">${esc(problem.title)}
+    ${problems.map(problem => `<label class="checkbox-label">
+      <input type="checkbox" name="problem_ids" value="${esc(problem.id)}"${problemIDs.includes(problem.id) ? ' checked' : ''}>${esc(problem.title)}
     </label>`).join('')}
   </div></fieldset>`;
 }
 
-export function newWorkModal(snapshot, kind = 'homework') {
+function workForm(snapshot, kind, draft) {
+  const formAttrs = draft ? `data-form="work-draft" data-id="${esc(draft.id)}" data-kind="${esc(kind)}"
+    data-starts-at="${esc(draft.starts_at)}" data-ends-at="${esc(draft.ends_at)}"` : 'data-form="work"';
   return {
-    title: kind === 'contest' ? 'Новый учебный контест' : 'Новое домашнее задание',
-    subtitle: 'Сохраните черновик или сразу откройте работу ученикам.', wide: true,
-    body: `<form data-form="work">
+    title: draft ? 'Редактировать черновик' : kind === 'contest' ? 'Новый учебный контест' : 'Новое домашнее задание',
+    subtitle: draft ? 'Измените параметры работы перед публикацией.' : 'Сохраните черновик или сразу откройте работу ученикам.', wide: true,
+    body: `<form ${formAttrs}>
       <div class="form-grid">
-        <label class="form-field"><span class="form-label">Формат</span><select class="input" name="kind">
+        ${draft ? '' : `<label class="form-field"><span class="form-label">Формат</span><select class="input" name="kind">
           <option value="homework"${kind === 'homework' ? ' selected' : ''}>Домашнее задание</option>
           <option value="contest"${kind === 'contest' ? ' selected' : ''}>Учебный контест</option>
-        </select></label>
+        </select></label>`}
         <label class="form-field"><span class="form-label">Тема занятия</span><select class="input" name="topic_id">
-          <option value="">Без темы</option>${snapshot.topics.map(topic => `<option value="${esc(topic.id)}">${esc(topic.title)}</option>`).join('')}
+          <option value="">Без темы</option>${snapshot.topics.map(topic => `<option value="${esc(topic.id)}"${topic.id === draft?.topic_id ? ' selected' : ''}>${esc(topic.title)}</option>`).join('')}
         </select></label>
       </div>
-      ${field('Название работы', 'title', { required: true, placeholder: kind === 'contest'
+      ${field('Название работы', 'title', { required: true, value: draft?.title, placeholder: kind === 'contest'
         ? 'Например, разминка перед олимпиадой' : 'Например, практика по циклам' })}
-      ${field('Описание', 'description', { type: 'textarea', placeholder: 'Что нужно сделать и на что обратить внимание' })}
-      ${workAudience(snapshot)}
+      ${field('Описание', 'description', { type: 'textarea', value: draft?.description, placeholder: 'Что нужно сделать и на что обратить внимание' })}
+      ${workAudience(snapshot, draft)}
       <div class="form-grid">
-        ${field('Начало доступа', 'starts_at', { type: 'datetime-local', hint: 'Пусто — доступно сразу после открытия.' })}
-        ${field('Срок сдачи / окончание', 'ends_at', { type: 'datetime-local', hint: 'Пусто — без ограничения по времени.' })}
+        ${field('Начало доступа', 'starts_at', { type: 'datetime-local', step: draft ? 'any' : undefined,
+          value: localDateTime(draft?.starts_at), hint: 'Пусто — доступно сразу после открытия.' })}
+        ${field('Срок сдачи / окончание', 'ends_at', { type: 'datetime-local', step: draft ? 'any' : undefined,
+          value: localDateTime(draft?.ends_at), hint: 'Пусто — без ограничения по времени.' })}
       </div>
-      <label class="form-field"><span class="form-label">Доступ</span><select class="input" name="status">
+      ${draft ? '' : `<label class="form-field"><span class="form-label">Доступ</span><select class="input" name="status">
         <option value="draft">Черновик — виден только преподавателю</option>
         <option value="open">Открыто — ученики могут решать</option>
-      </select></label>
-      ${formFooter('Создать работу')}
+      </select></label>`}
+      ${formFooter(draft ? 'Сохранить черновик' : 'Создать работу')}
     </form>`,
   };
+}
+
+export function newWorkModal(snapshot, kind = 'homework') {
+  return workForm(snapshot, kind);
+}
+
+function editableDraft(work, snapshot) {
+  return snapshot.user.role === 'teacher' && work?.status === 'draft'
+    && !snapshot.submissions.some(submission => submission.work_id === work.id);
+}
+
+export function editWorkModal(id, snapshot) {
+  const draft = findByID(snapshot.works, id);
+  return editableDraft(draft, snapshot) ? workForm(snapshot, draft.kind, draft) : null;
 }
 
 export function topicModal(id, snapshot) {
@@ -171,6 +193,7 @@ export function workModal(id, snapshot) {
     </table></div>
     ${!teacher() ? `<p class="help-text work-progress-note">Ваш прогресс: ${esc(progress.caption)}. Результаты появляются после проверки.</p>` : ''}
     <div class="detail-actions">
+      ${editableDraft(item, snapshot) ? button('edit-draft', 'Редактировать', 'file', '', `data-id="${esc(item.id)}"`) : ''}
       ${item.kind === 'contest' ? button('standings', 'Таблица результатов', 'trophy', '', `data-id="${esc(item.id)}"`) : ''}
       ${teacher() ? item.status !== 'open'
         ? button('publish-work', 'Открыть доступ', 'check', 'primary', `data-id="${esc(item.id)}"`)

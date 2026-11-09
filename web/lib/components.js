@@ -113,10 +113,10 @@ export function submissionsTable(submissions, snapshot) {
 }
 
 export function field(label, name, options = {}) {
-  const { type = 'text', value = '', placeholder = '', required = false, hint = '', min, max, rows } = options;
+  const { type = 'text', value = '', placeholder = '', required = false, hint = '', min, max, rows, step } = options;
   const attrs = `name="${esc(name)}" ${required ? 'required' : ''}
     ${min !== undefined ? `min="${min}"` : ''} ${max !== undefined ? `max="${max}"` : ''}
-    placeholder="${esc(placeholder)}"`;
+    ${step !== undefined ? `step="${esc(step)}"` : ''} placeholder="${esc(placeholder)}"`;
   const control = type === 'textarea'
     ? `<textarea class="input" ${attrs} ${rows ? `rows="${rows}"` : ''}>${esc(value)}</textarea>`
     : `<input class="input" type="${esc(type)}" ${attrs} value="${esc(value)}">`;
