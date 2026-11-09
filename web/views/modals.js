@@ -1,4 +1,5 @@
 import { canRejudge, canRetryJudging, judgingResult } from '../lib/judging.js';
+import { trialControls } from '../lib/auxiliary.js';
 import { esc, icon, date, localDateTime, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, verdictNames, standingsMark, latestSubmission } from '../lib/state.js';
 import { button, empty, field, formFooter, phaseBadge, verdictBadge,
@@ -232,12 +233,12 @@ function statementHTML(problem) {
     ${problem.samples?.length ? `<h3 class="statement-heading">Примеры</h3>${samplesHTML(problem.samples)}` : ''}`;
 }
 
-function submissionForm(problem, work, snapshot) {
+function submissionForm(problem, work, snapshot, revision) {
   const languages = snapshot.languages;
   const options = languages.map(language => `<option value="${esc(language.id)}">${esc(language.name)}${language.automatic ? '' : ' · вручную'}</option>`).join('');
   const latest = latestSubmission(snapshot.submissions, item => item.user_id === snapshot.user.id
     && item.work_id === work.id && item.problem_id === problem.id);
-  return `<form data-form="submission" data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
+  return `<form data-form="submission" data-work="${esc(work.id)}" data-problem="${esc(problem.id)}" data-test-revision="${esc(revision)}">
     <div class="workspace-tabbar" role="tablist" aria-label="Решение и результат">
       <button type="button" class="workspace-tab active" data-action="editor-tab" data-tab="code" id="editor-code-tab" role="tab" aria-controls="editor-code-panel" aria-selected="true">Код</button>
       <button type="button" class="workspace-tab" data-action="editor-tab" data-tab="result" id="editor-result-tab" role="tab" aria-controls="editor-result-panel" aria-selected="false" tabindex="-1">Результат</button>
@@ -263,6 +264,7 @@ function submissionForm(problem, work, snapshot) {
         <label class="upload"><span>Загрузить файл</span><input type="file" id="source-file" aria-label="Загрузить исходный код из файла"></label>
         <span data-draft-status class="form-hint">До 128 КБ</span>
       </div>
+      ${snapshot.judging_mode === 'automatic' ? trialControls(problem.samples) : ''}
     </div>
     <div data-editor-panel="result" id="editor-result-panel" role="tabpanel" aria-labelledby="editor-result-tab" class="editor-result-panel" hidden>
       <div data-editor-result data-work="${esc(work.id)}" data-problem="${esc(problem.id)}">
@@ -289,7 +291,7 @@ export function problemModal(id, workID, snapshot) {
           <div class="workspace-tabbar"><span class="workspace-tab active">Условие</span></div>
           <div class="condition-body">${statementHTML(task)}</div>
         </section>
-        ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot)}</section>` : ''}
+        ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot, revision)}</section>` : ''}
       </div>
       ${teacher() ? `<div class="detail-actions"><span class="muted">Версия тестов ${revision}</span>
         ${button('new-test-revision', 'Новая версия тестов', 'plus', '', `data-id="${esc(id)}"`)}

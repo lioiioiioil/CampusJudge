@@ -5,6 +5,7 @@ import { ApiError } from './api.js';
 import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
 import { buildFormCommand, sourceLimitBytes } from './forms.js';
+import { pollAuxiliary, renderAuxiliaryResult, trialRequest } from './auxiliary.js';
 import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, editWorkModal, testPair,
   topicModal, workModal, problemModal, submissionModal, standingsModal, testRevisionModal, workTestRevisionModal } from '../views/modals.js';
 import { gradebookModal } from '../views/gradebook.js';
@@ -367,6 +368,23 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     }
   }
 
+  async function runTrial(element) {
+    const generation = sessionGeneration;
+    const form = element.closest('form');
+    const panel = form.querySelector('[data-auxiliary-result]');
+    const body = trialRequest(form, view.snapshot);
+    panel.textContent = 'Запускаем код…';
+    const current = () => isCurrent(generation) && dialog.open && panel.isConnected;
+    try {
+      await pollAuxiliary(api, '/api/trials', body, result => {
+        panel.innerHTML = renderAuxiliaryResult(result);
+      }, current);
+    } catch (error) {
+      panel.textContent = error.message;
+      throw error;
+    }
+  }
+
   const actions = {
     'retry-init': start,
     theme: () => {
@@ -376,6 +394,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
       }
     },
     'editor-tab': element => editor.selectTab(element.closest('form'), element.dataset.tab),
+    'run-trial': runTrial,
     'insert-template': element => editor.insertTemplate(element.closest('form'), view.snapshot),
     'confirm-template': element => editor.insertTemplate(element.closest('form'), view.snapshot, { replace: true }),
     'cancel-template': element => { element.closest('form').querySelector('[data-template-confirm]').hidden = true; },
@@ -499,6 +518,9 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     document.addEventListener('change', event => {
       if (event.target.id === 'group-filter') { view.groupFilter = event.target.value; render(); }
       if (event.target.id === 'source-file') uploadSource(event.target);
+      if (event.target.name === 'trial_example') {
+        event.target.closest('form').querySelector('[data-trial-input]').hidden = event.target.value !== 'custom';
+      }
       if (event.target.name === 'language' && event.target.closest('form')?.dataset.form === 'submission') {
         editor.changeLanguage(event.target.closest('form'), view.snapshot);
       }

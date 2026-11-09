@@ -110,6 +110,18 @@ test('conditions and source are escaped, and hidden tests are teacher-only', () 
   assert.doesNotMatch(source, /data-form="review"/);
 });
 
+test('trial selector and statement use the same version bound to the work', () => {
+  const { snapshot } = fixture('student');
+  snapshot.judging_mode = 'automatic';
+  snapshot.works[0].problem_revisions = { p: 2 };
+  snapshot.problems[0].test_revisions = [{ number: 2, samples: [{ input: 'new example', output: '42' }] }];
+  const body = problemModal('p', 'w', snapshot).body;
+  assert.match(body, /data-test-revision="2"/);
+  assert.match(body, /new example/);
+  assert.match(body, /<option value="0">Пример 1<\/option>/);
+  assert.doesNotMatch(body, />2 3</);
+});
+
 test('empty class progress and Russian sample count are accurate', () => {
   const view = fixture();
   assert.equal(workProgress(view.snapshot.works[0], view.snapshot).caption, 'Пока нет участников');

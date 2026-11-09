@@ -135,6 +135,28 @@ func TestWrongAnswerStopsAfterFailedTestWithoutDisclosingData(t *testing.T) {
 	}
 }
 
+func TestTrialComparesPublicOutputAndReturnsBoundedCustomOutput(t *testing.T) {
+	runner, fake := newFakeDocker(t)
+	fake.tests = []protocol.TestResponse{
+		{Stdout: []byte("6\n"), TimeMS: 3},
+		{Stdout: []byte(strings.Repeat("x", MaxTrialOutputBytes+1)), TimeMS: 9},
+	}
+	job := sampleJob()
+	result, err := runner.Trial(context.Background(), job, true)
+	if err != nil || result.Verdict != "wrong_answer" || result.Output != "6\n" || result.TimeMS != 3 || result.OutputTruncated {
+		t.Fatalf("public trial: result=%+v err=%v", result, err)
+	}
+	result, err = runner.Trial(context.Background(), job, false)
+	if err != nil || result.Verdict != "completed" || result.TimeMS != 9 || len(result.Output) != MaxTrialOutputBytes || !result.OutputTruncated {
+		t.Fatalf("custom trial: verdict=%q time=%d length=%d truncated=%t err=%v",
+			result.Verdict, result.TimeMS, len(result.Output), result.OutputTruncated, err)
+	}
+	job.Tests = append(job.Tests, model.TestCase{Input: "private"})
+	if _, err := runner.Trial(context.Background(), job, true); err == nil || len(fake.requests) != 2 {
+		t.Fatal("trial accepted more than one input")
+	}
+}
+
 func TestExecutionVerdicts(t *testing.T) {
 	cases := []struct {
 		name     string

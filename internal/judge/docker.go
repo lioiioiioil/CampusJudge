@@ -101,74 +101,24 @@ func (runner *DockerRunner) Run(ctx context.Context, job Job) (Result, error) {
 	if err := validateJob(job); err != nil {
 		return result, err
 	}
-	request, err := json.Marshal(protocol.CompileRequest{Language: job.Language, Source: job.Source})
+	compiled, err := runner.compile(ctx, job)
 	if err != nil {
 		return result, err
 	}
-	output, state, err := runner.container(ctx, "compile", request, 1024, 80*time.Second, protocol.MaxCompileResponseBytes)
-	if err != nil {
-		return result, err
-	}
-	if state.OOMKilled {
-		result.Verdict, result.CompileOutput = "compilation_error", "Compilation exceeded its memory limit."
-		return result, nil
-	}
-	var compiled protocol.CompileResponse
-	if err := decodeResponse(output, &compiled); err != nil {
-		return result, fmt.Errorf("invalid compiler supervisor response: %w", err)
-	}
-	if compiled.Error != "" {
-		return result, fmt.Errorf("compiler infrastructure: %s", compiled.Error)
-	}
-	result.CompileOutput = compiled.Log[:min(len(compiled.Log), protocol.MaxCompilerLogBytes)]
+	result.CompileOutput = compiled.Log
 	if !compiled.Success {
 		result.Verdict = "compilation_error"
 		return result, nil
 	}
-	if err := protocol.ValidateArtifacts(compiled.Files); err != nil {
-		return result, fmt.Errorf("invalid compiler artifact package: %w", err)
-	}
 	for index, test := range job.Tests {
-		// Only this input enters the container. Expected output and every other
-		// hidden test remain in the trusted host process.
-		request, err := json.Marshal(protocol.TestRequest{Language: job.Language, Files: compiled.Files, Input: test.Input, TimeLimitMS: job.TimeLimitMS, MemoryLimitMB: job.MemoryLimitMB})
+		executed, err := runner.executeTest(ctx, job, compiled.Files, test.Input)
 		if err != nil {
 			return result, err
 		}
-		if len(request) > protocol.MaxTestRequestBytes {
-			return result, errors.New("runtime request exceeds its hard limit")
-		}
-		output, state, err := runner.container(ctx, "test", request, job.MemoryLimitMB, time.Duration(job.TimeLimitMS)*time.Millisecond+20*time.Second, protocol.MaxTestResponseBytes)
-		if err != nil {
-			return result, err
-		}
-		verdict := ""
-		if state.OOMKilled {
-			verdict = "memory_limit"
-		} else {
-			var executed protocol.TestResponse
-			if err := decodeResponse(output, &executed); err != nil {
-				return result, fmt.Errorf("invalid runtime supervisor response: %w", err)
-			}
-			if executed.Error != "" {
-				return result, fmt.Errorf("runtime infrastructure: %s", executed.Error)
-			}
-			if executed.TimeMS < 0 || len(executed.Stdout) > protocol.MaxOutputBytes {
-				return result, errors.New("invalid runtime measurements")
-			}
-			result.TimeMS = max(result.TimeMS, executed.TimeMS)
-			switch {
-			case executed.MemoryExceeded:
-				verdict = "memory_limit"
-			case executed.OutputLimited:
-				verdict = "output_limit"
-			case executed.TimedOut:
-				verdict = "time_limit"
-			case executed.ExitCode != 0:
-				verdict = "runtime_error"
-			case !slices.Equal(strings.Fields(string(executed.Stdout)), strings.Fields(test.Output)):
-				verdict = "wrong_answer"
-			}
+		result.TimeMS = max(result.TimeMS, executed.TimeMS)
+		verdict := executionVerdict(executed)
+		if verdict == "" && !outputMatches(executed.Stdout, test.Output) {
+			verdict = "wrong_answer"
 		}
 		if verdict != "" {
 			result.Verdict, result.FailedTest = verdict, index+1
@@ -178,6 +128,121 @@ func (runner *DockerRunner) Run(ctx context.Context, job Job) (Result, error) {
 	}
 	result.Verdict = "accepted"
 	return result, nil
+}
+
+func (runner *DockerRunner) Trial(ctx context.Context, job Job, compare bool) (TrialResult, error) {
+	var result TrialResult
+	if len(job.Tests) != 1 {
+		return result, errors.New("trial requires exactly one public or custom input")
+	}
+	if err := validateJob(job); err != nil {
+		return result, err
+	}
+	compiled, err := runner.compile(ctx, job)
+	if err != nil {
+		return result, err
+	}
+	result.CompileOutput = compiled.Log
+	if !compiled.Success {
+		result.Verdict = "compilation_error"
+		return result, nil
+	}
+	test := job.Tests[0]
+	executed, err := runner.executeTest(ctx, job, compiled.Files, test.Input)
+	if err != nil {
+		return result, err
+	}
+	result.TimeMS = executed.TimeMS
+	result.Output = string(executed.Stdout[:min(len(executed.Stdout), MaxTrialOutputBytes)])
+	result.OutputTruncated = len(executed.Stdout) > MaxTrialOutputBytes || executed.OutputLimited
+	result.Verdict = executionVerdict(executed)
+	if result.Verdict == "" {
+		switch {
+		case !compare:
+			result.Verdict = "completed"
+		case outputMatches(executed.Stdout, test.Output):
+			result.Verdict = "accepted"
+		default:
+			result.Verdict = "wrong_answer"
+		}
+	}
+	return result, nil
+}
+
+func (runner *DockerRunner) compile(ctx context.Context, job Job) (protocol.CompileResponse, error) {
+	var compiled protocol.CompileResponse
+	request, err := json.Marshal(protocol.CompileRequest{Language: job.Language, Source: job.Source})
+	if err != nil {
+		return compiled, err
+	}
+	output, state, err := runner.container(ctx, "compile", request, 1024, 80*time.Second, protocol.MaxCompileResponseBytes)
+	if err != nil {
+		return compiled, err
+	}
+	if state.OOMKilled {
+		return protocol.CompileResponse{Log: "Compilation exceeded its memory limit."}, nil
+	}
+	if err := decodeResponse(output, &compiled); err != nil {
+		return compiled, fmt.Errorf("invalid compiler supervisor response: %w", err)
+	}
+	if compiled.Error != "" {
+		return compiled, fmt.Errorf("compiler infrastructure: %s", compiled.Error)
+	}
+	compiled.Log = compiled.Log[:min(len(compiled.Log), protocol.MaxCompilerLogBytes)]
+	if compiled.Success {
+		if err := protocol.ValidateArtifacts(compiled.Files); err != nil {
+			return compiled, fmt.Errorf("invalid compiler artifact package: %w", err)
+		}
+	}
+	return compiled, nil
+}
+
+func (runner *DockerRunner) executeTest(ctx context.Context, job Job, files []protocol.Artifact, input string) (protocol.TestResponse, error) {
+	var executed protocol.TestResponse
+	// Expected output and all other inputs stay in the trusted host process.
+	request, err := json.Marshal(protocol.TestRequest{Language: job.Language, Files: files, Input: input, TimeLimitMS: job.TimeLimitMS, MemoryLimitMB: job.MemoryLimitMB})
+	if err != nil {
+		return executed, err
+	}
+	if len(request) > protocol.MaxTestRequestBytes {
+		return executed, errors.New("runtime request exceeds its hard limit")
+	}
+	output, state, err := runner.container(ctx, "test", request, job.MemoryLimitMB, time.Duration(job.TimeLimitMS)*time.Millisecond+20*time.Second, protocol.MaxTestResponseBytes)
+	if err != nil {
+		return executed, err
+	}
+	if state.OOMKilled {
+		return protocol.TestResponse{MemoryExceeded: true}, nil
+	}
+	if err := decodeResponse(output, &executed); err != nil {
+		return executed, fmt.Errorf("invalid runtime supervisor response: %w", err)
+	}
+	if executed.Error != "" {
+		return executed, fmt.Errorf("runtime infrastructure: %s", executed.Error)
+	}
+	if executed.TimeMS < 0 || len(executed.Stdout) > protocol.MaxOutputBytes {
+		return executed, errors.New("invalid runtime measurements")
+	}
+	return executed, nil
+}
+
+func executionVerdict(executed protocol.TestResponse) string {
+	switch {
+	case executed.MemoryExceeded:
+		return "memory_limit"
+	case executed.OutputLimited:
+		return "output_limit"
+	case executed.TimedOut:
+		return "time_limit"
+	case executed.ExitCode != 0:
+		return "runtime_error"
+	default:
+		return ""
+	}
+}
+
+func outputMatches(stdout []byte, expected string) bool {
+	return slices.Equal(strings.Fields(string(stdout)), strings.Fields(expected))
 }
 
 func (runner *DockerRunner) container(ctx context.Context, phase string, input []byte, memoryMB int, timeout time.Duration, outputLimit int) (output []byte, state containerState, err error) {

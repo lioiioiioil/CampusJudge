@@ -26,6 +26,7 @@ type App struct {
 	runner         judge.Runner
 	judgeWake      chan struct{}
 	judgeDone      chan struct{}
+	auxiliary      auxiliaryRuns
 }
 type apiError struct {
 	code    int
@@ -66,6 +67,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/submissions", a.handle(a.submit, signedInAccess))
 	mux.HandleFunc("GET /api/submissions/{id}", a.handle(a.submissionDetails, signedInAccess))
 	mux.HandleFunc("GET /api/submission-statuses", a.handle(a.submissionStatuses, signedInAccess))
+	mux.HandleFunc("POST /api/trials", a.handle(a.trial, signedInAccess))
+	mux.HandleFunc("GET /api/auxiliary-runs/{id}", a.handle(a.auxiliaryResult, signedInAccess))
 	mux.HandleFunc("PATCH /api/submissions/{id}", a.handle(a.review, teacherAccess))
 	mux.HandleFunc("POST /api/submissions/{id}/retry", a.handle(a.retryJudging, teacherAccess))
 	mux.HandleFunc("POST /api/submissions/{id}/rejudge", a.handle(a.rejudgeSubmission, teacherAccess))

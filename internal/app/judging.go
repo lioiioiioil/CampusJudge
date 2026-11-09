@@ -45,6 +45,7 @@ func (a *App) StartJudge(ctx context.Context, runner judge.Runner) error {
 		return err
 	}
 	a.runner = runner
+	a.auxiliary = newAuxiliaryRuns(ctx)
 	a.judgeWake = make(chan struct{}, 1)
 	a.judgeDone = make(chan struct{})
 	go a.judgeLoop(ctx)
@@ -103,6 +104,7 @@ func (a *App) prepareJudgeQueue(recoverRunning bool) error {
 func (a *App) WaitJudge() {
 	if a.judgeDone != nil {
 		<-a.judgeDone
+		a.auxiliary.wait()
 	}
 }
 
@@ -196,7 +198,7 @@ func (a *App) judgeOne(ctx context.Context, id string) error {
 	if !claimed {
 		return nil
 	}
-	result, runErr := a.runner.Run(ctx, job)
+	result, runErr := a.runGraded(ctx, job)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	} // Persisted running job is resumed next startup.

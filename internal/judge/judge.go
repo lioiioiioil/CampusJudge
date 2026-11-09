@@ -35,6 +35,22 @@ type Runner interface {
 	Run(context.Context, Job) (Result, error)
 }
 
+const MaxTrialOutputBytes = 16 * 1024
+
+// TrialResult can expose stdout because its single input was explicitly chosen
+// from a public example or supplied by the requesting student.
+type TrialResult struct {
+	Verdict         string
+	TimeMS          int64
+	Output          string
+	OutputTruncated bool
+	CompileOutput   string
+}
+
+type TrialRunner interface {
+	Trial(ctx context.Context, job Job, compareOutput bool) (TrialResult, error)
+}
+
 func Supports(language string) bool {
 	_, ok := protocol.Language(language)
 	return ok
