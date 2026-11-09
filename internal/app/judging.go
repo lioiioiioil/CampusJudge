@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lioiioiioil/CampusJudge/internal/domain"
 	"github.com/lioiioiioil/CampusJudge/internal/judge"
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 )
@@ -57,9 +58,9 @@ func prepareQueue(state *model.State, recoverRunning bool) bool {
 			len(sub.Source) > 128<<10 || strings.TrimSpace(sub.Source) == "" {
 			continue
 		}
-		problem := problemByID(*state, sub.ProblemID)
-		total := len(problem.Samples) + len(problem.Tests)
-		if problem.ID == "" || total == 0 {
+		tests, found := domain.TestsAt(problemByID(*state, sub.ProblemID), sub.TestRevision)
+		total := len(tests.Samples) + len(tests.Tests)
+		if !found || total == 0 {
 			continue
 		}
 		sub.Judging = &model.Judging{Status: "queued", TotalTests: total}
@@ -157,8 +158,9 @@ func (a *App) judgeOne(ctx context.Context, id string) error {
 				continue
 			}
 			problem := problemByID(*s, sub.ProblemID)
+			tests, _ := domain.TestsAt(problem, sub.TestRevision)
 			job = judge.Job{Language: sub.Language, Source: sub.Source,
-				Tests:       append(slices.Clone(problem.Samples), problem.Tests...),
+				Tests:       append(slices.Clone(tests.Samples), tests.Tests...),
 				TimeLimitMS: problem.TimeLimitMS, MemoryLimitMB: problem.MemoryLimitMB}
 			sub.Judging.Status = "running"
 			claimed = true

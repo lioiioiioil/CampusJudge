@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"maps"
 	"slices"
 	"time"
 
@@ -28,7 +29,7 @@ func ClassroomFor(state model.State, user model.User, now time.Time) Classroom {
 	}
 	teacher := user.Role == "teacher"
 	allowedWorks := make(map[string]bool)
-	allowedProblems := make(map[string]bool)
+	allowedRevisions := make(map[string]map[int]bool)
 	for _, work := range state.Works {
 		if !WorkVisible(work, user) {
 			continue
@@ -36,25 +37,24 @@ func ClassroomFor(state model.State, user model.User, now time.Time) Classroom {
 		allowedWorks[work.ID] = true
 		if teacher || WorkStarted(work, now) {
 			for _, id := range work.ProblemIDs {
-				allowedProblems[id] = true
+				if allowedRevisions[id] == nil {
+					allowedRevisions[id] = make(map[int]bool)
+				}
+				allowedRevisions[id][max(1, work.ProblemRevisions[id])] = true
 			}
 		}
 		work.GroupIDs = slices.Clone(work.GroupIDs)
 		work.ProblemIDs = slices.Clone(work.ProblemIDs)
+		work.ProblemRevisions = maps.Clone(work.ProblemRevisions)
 		work.StartsAt, work.EndsAt = copyTimestamp(work.StartsAt), copyTimestamp(work.EndsAt)
 		classroom.Works = append(classroom.Works, work)
 	}
 	for _, problem := range state.Problems {
-		if !teacher && !allowedProblems[problem.ID] {
+		revisions := allowedRevisions[problem.ID]
+		if !teacher && len(revisions) == 0 {
 			continue
 		}
-		problem.Samples = slices.Clone(problem.Samples)
-		if teacher {
-			problem.Tests = slices.Clone(problem.Tests)
-		} else {
-			problem.Tests = nil
-		}
-		classroom.Problems = append(classroom.Problems, problem)
+		classroom.Problems = append(classroom.Problems, projectProblem(problem, teacher, revisions))
 	}
 	for _, submission := range state.Submissions {
 		if teacher || (submission.UserID == user.ID && allowedWorks[submission.WorkID]) {
@@ -81,6 +81,34 @@ func ClassroomFor(state model.State, user model.User, now time.Time) Classroom {
 		}
 	}
 	return classroom
+}
+
+func projectProblem(problem model.Problem, teacher bool, visible map[int]bool) model.Problem {
+	if teacher || visible[1] {
+		problem.Samples = slices.Clone(problem.Samples)
+	} else {
+		problem.Samples = nil
+	}
+	if teacher {
+		problem.Tests = slices.Clone(problem.Tests)
+	} else {
+		problem.Tests = nil
+	}
+	revisions := problem.TestRevisions
+	problem.TestRevisions = nil
+	for _, revision := range revisions {
+		if !teacher && !visible[revision.Number] {
+			continue
+		}
+		revision.Samples = slices.Clone(revision.Samples)
+		if teacher {
+			revision.Tests = slices.Clone(revision.Tests)
+		} else {
+			revision.Tests = nil
+		}
+		problem.TestRevisions = append(problem.TestRevisions, revision)
+	}
+	return problem
 }
 
 func copyTimestamp(timestamp *time.Time) *time.Time {

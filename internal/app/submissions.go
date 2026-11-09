@@ -45,9 +45,13 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 				return fail(http.StatusBadRequest, err.Error())
 			}
 		}
+		tests, found := domain.TestsAt(problemByID(*s, in.ProblemID), work.ProblemRevisions[in.ProblemID])
+		if !found {
+			return fail(409, "Версия тестов задачи недоступна")
+		}
+		submission.TestRevision = tests.Number
 		if a.runner != nil && automaticLanguage(in.Language) {
-			problem := problemByID(*s, in.ProblemID)
-			total := len(problem.Samples) + len(problem.Tests)
+			total := len(tests.Samples) + len(tests.Tests)
 			if total == 0 {
 				return fail(http.StatusBadRequest, "У задачи пока нет тестов. Обратитесь к преподавателю")
 			}

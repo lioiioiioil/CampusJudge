@@ -6,7 +6,7 @@ import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
 import { buildFormCommand, sourceLimitBytes } from './forms.js';
 import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, testPair,
-  topicModal, workModal, problemModal, submissionModal, standingsModal } from '../views/modals.js';
+  topicModal, workModal, problemModal, submissionModal, standingsModal, testRevisionModal, workTestRevisionModal } from '../views/modals.js';
 
 function readFields(form) {
   const values = new FormData(form);
@@ -327,6 +327,9 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'topic-detail': element => openModal(topicModal(element.dataset.id, view.snapshot)),
     problem: element => openModal(problemModal(element.dataset.id, element.dataset.work, view.snapshot)),
     'problem-preview': element => openModal(problemModal(element.dataset.id, undefined, view.snapshot)),
+    'new-test-revision': element => openModal(testRevisionModal(findByID(view.snapshot.problems, element.dataset.id))),
+    'work-test-revision': element => openModal(workTestRevisionModal(
+      findByID(view.snapshot.problems, element.dataset.id), findByID(view.snapshot.works, element.dataset.work))),
     submission: element => openModal(submissionModal(element.dataset.id, view.snapshot)),
     standings: element => showStandings(element.dataset.id),
     'publish-work': element => changeAccess(element.dataset.id, 'open'),

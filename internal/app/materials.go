@@ -60,6 +60,9 @@ func (a *App) createProblem(w http.ResponseWriter, r *http.Request, _ model.User
 	if err := readJSON(w, r, &in); err != nil {
 		return err
 	}
+	if len(in.TestRevisions) != 0 {
+		return fail(400, "Добавляйте версии тестов к сохранённой задаче")
+	}
 	in.Title = strings.TrimSpace(in.Title)
 	in.Statement = strings.TrimSpace(in.Statement)
 	if len(in.Title) < 2 || len(in.Title) > 200 || len(in.Statement) < 5 || len(in.Statement) > 50000 {
@@ -77,15 +80,8 @@ func (a *App) createProblem(w http.ResponseWriter, r *http.Request, _ model.User
 	if in.TimeLimitMS < 100 || in.TimeLimitMS > 30000 || in.MemoryLimitMB < 16 || in.MemoryLimitMB > 2048 {
 		return fail(400, "Лимит времени: 100–30000 мс; памяти: 16–2048 МБ")
 	}
-	if len(in.Samples) > 20 || len(in.Tests) > 100 {
-		return fail(400, "Допускается до 20 примеров и до 100 скрытых тестов")
-	}
-	for _, tests := range [][]model.TestCase{in.Samples, in.Tests} {
-		for _, t := range tests {
-			if len(t.Input) > 65536 || len(t.Output) > 65536 {
-				return fail(400, "Размер одного теста ограничен 64 КБ")
-			}
-		}
+	if err := validateTestCases(in.Samples, in.Tests); err != nil {
+		return err
 	}
 	in.ID = newID("problem")
 	if in.Samples == nil {
@@ -98,6 +94,20 @@ func (a *App) createProblem(w http.ResponseWriter, r *http.Request, _ model.User
 		return err
 	}
 	writeJSON(w, 201, in)
+	return nil
+}
+
+func validateTestCases(samples, hidden []model.TestCase) error {
+	if len(samples) > 20 || len(hidden) > 100 {
+		return fail(400, "Допускается до 20 примеров и до 100 скрытых тестов")
+	}
+	for _, tests := range [][]model.TestCase{samples, hidden} {
+		for _, t := range tests {
+			if len(t.Input) > 65536 || len(t.Output) > 65536 {
+				return fail(400, "Размер одного теста ограничен 64 КБ")
+			}
+		}
+	}
 	return nil
 }
 func (a *App) createWork(w http.ResponseWriter, r *http.Request, _ model.User) error {

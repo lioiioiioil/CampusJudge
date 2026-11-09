@@ -44,43 +44,52 @@ type TestCase struct {
 	Input  string `json:"input"`
 	Output string `json:"output"`
 }
+type TestRevision struct {
+	Number    int        `json:"number"`
+	Samples   []TestCase `json:"samples"`
+	Tests     []TestCase `json:"tests,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
 type Problem struct {
-	ID            string     `json:"id"`
-	Title         string     `json:"title"`
-	Statement     string     `json:"statement"`
-	InputFormat   string     `json:"input_format"`
-	OutputFormat  string     `json:"output_format"`
-	TimeLimitMS   int        `json:"time_limit_ms"`
-	MemoryLimitMB int        `json:"memory_limit_mb"`
-	Samples       []TestCase `json:"samples"`
-	Tests         []TestCase `json:"tests,omitempty"`
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Statement     string         `json:"statement"`
+	InputFormat   string         `json:"input_format"`
+	OutputFormat  string         `json:"output_format"`
+	TimeLimitMS   int            `json:"time_limit_ms"`
+	MemoryLimitMB int            `json:"memory_limit_mb"`
+	Samples       []TestCase     `json:"samples"`
+	Tests         []TestCase     `json:"tests,omitempty"`
+	TestRevisions []TestRevision `json:"test_revisions,omitempty"`
 }
 type Work struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Kind        string     `json:"kind"`
-	TopicID     string     `json:"topic_id"`
-	GroupIDs    []string   `json:"group_ids"`
-	ProblemIDs  []string   `json:"problem_ids"`
-	Status      string     `json:"status"`
-	StartsAt    *time.Time `json:"starts_at,omitempty"`
-	EndsAt      *time.Time `json:"ends_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	Description      string         `json:"description"`
+	Kind             string         `json:"kind"`
+	TopicID          string         `json:"topic_id"`
+	GroupIDs         []string       `json:"group_ids"`
+	ProblemIDs       []string       `json:"problem_ids"`
+	ProblemRevisions map[string]int `json:"problem_revisions,omitempty"`
+	Status           string         `json:"status"`
+	StartsAt         *time.Time     `json:"starts_at,omitempty"`
+	EndsAt           *time.Time     `json:"ends_at,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
 }
 type Submission struct {
-	ID         string     `json:"id"`
-	WorkID     string     `json:"work_id"`
-	ProblemID  string     `json:"problem_id"`
-	UserID     string     `json:"user_id"`
-	Language   string     `json:"language"`
-	Source     string     `json:"source"`
-	Verdict    string     `json:"verdict"`
-	Feedback   string     `json:"feedback"`
-	CreatedAt  time.Time  `json:"created_at"`
-	JudgedAt   *time.Time `json:"judged_at,omitempty"`
-	ReviewerID string     `json:"reviewer_id,omitempty"`
-	Judging    *Judging   `json:"judging,omitempty"`
+	ID           string     `json:"id"`
+	WorkID       string     `json:"work_id"`
+	ProblemID    string     `json:"problem_id"`
+	UserID       string     `json:"user_id"`
+	Language     string     `json:"language"`
+	Source       string     `json:"source"`
+	Verdict      string     `json:"verdict"`
+	Feedback     string     `json:"feedback"`
+	CreatedAt    time.Time  `json:"created_at"`
+	JudgedAt     *time.Time `json:"judged_at,omitempty"`
+	ReviewerID   string     `json:"reviewer_id,omitempty"`
+	Judging      *Judging   `json:"judging,omitempty"`
+	TestRevision int        `json:"test_revision,omitempty"`
 }
 
 // Judging contains only public progress. Hidden test inputs/answers never become

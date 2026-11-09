@@ -15,8 +15,10 @@ JSON, один origin с интерфейсом. Изменяющие запро
 - `POST /api/groups` `{name}` → созданная группа с invite_code.
 - `POST /api/topics` `{title,description,lesson_url?:https URL}` → тема. Ссылка открывается во внешнем видеосервисе.
 - `POST /api/problems` `{title,statement,input_format,output_format,time_limit_ms,memory_limit_mb,samples:[{input,output}],tests:[{input,output}]}` → задача.
+- `POST /api/problems/{id}/test-revisions` `{samples,tests}` → новая неизменяемая версия тестов. Исходные тесты считаются версией 1.
 - `POST /api/works` `{title,description,kind:"homework"|"contest",topic_id,group_ids:[],problem_ids:[],status:"draft"|"open"|"closed",starts_at?:RFC3339,ends_at?:RFC3339}` → работа.
 - `PATCH /api/works/{id}` `{status:"draft"|"open"|"closed"}` → работа.
+- `PATCH /api/works/{id}/problem-revisions` `{problem_id,revision}` → работа с версией для новых посылок. Уже отправленные посылки сохраняют свою версию.
 - `POST /api/submissions` `{work_id,problem_id,language,source}` → посылка.
 - `PATCH /api/submissions/{id}` `{verdict,feedback}` → проверенная посылка.
 - `GET /api/works/{id}/standings` → `{rows:[{user_id,name,solved,penalty,problems:{problem_id:{solved:boolean,attempts:number,minutes:number}}}]}`.

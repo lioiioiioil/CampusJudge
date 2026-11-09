@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -134,11 +135,18 @@ func clone(state model.State) model.State {
 	for i := range copy.Problems {
 		copy.Problems[i].Samples = slices.Clone(state.Problems[i].Samples)
 		copy.Problems[i].Tests = slices.Clone(state.Problems[i].Tests)
+		copy.Problems[i].TestRevisions = slices.Clone(state.Problems[i].TestRevisions)
+		for j := range copy.Problems[i].TestRevisions {
+			revision := &copy.Problems[i].TestRevisions[j]
+			revision.Samples = slices.Clone(revision.Samples)
+			revision.Tests = slices.Clone(revision.Tests)
+		}
 	}
 	copy.Works = slices.Clone(state.Works)
 	for i := range copy.Works {
 		copy.Works[i].GroupIDs = slices.Clone(state.Works[i].GroupIDs)
 		copy.Works[i].ProblemIDs = slices.Clone(state.Works[i].ProblemIDs)
+		copy.Works[i].ProblemRevisions = maps.Clone(state.Works[i].ProblemRevisions)
 		if state.Works[i].StartsAt != nil {
 			timestamp := *state.Works[i].StartsAt
 			copy.Works[i].StartsAt = &timestamp

@@ -85,10 +85,13 @@ function work(fields) {
     kind === 'contest' ? 'contests' : 'homework');
 }
 
-function problem(fields) {
-  const testCases = name => (fields[name] || [])
+function testCases(fields, name) {
+  return (fields[name] || [])
     .map(test => ({ input: String(test.input ?? ''), output: String(test.output ?? '') }))
     .filter(test => test.input !== '' || test.output !== '');
+}
+
+function problem(fields) {
   return command('/api/problems', {
     title: required(fields, 'title', 'Название'),
     statement: required(fields, 'statement', 'Условие'),
@@ -96,9 +99,25 @@ function problem(fields) {
     output_format: text(fields, 'output_format'),
     time_limit_ms: positiveInteger(fields, 'time_limit_ms', 'лимит времени'),
     memory_limit_mb: positiveInteger(fields, 'memory_limit_mb', 'лимит памяти'),
-    samples: testCases('samples'),
-    tests: testCases('tests'),
+    samples: testCases(fields, 'samples'),
+    tests: testCases(fields, 'tests'),
   }, 'Задача добавлена в банк', 'topics');
+}
+
+function testRevision(fields, context) {
+  if (!context.id) throw new Error('Задача не найдена.');
+  const samples = testCases(fields, 'samples');
+  const tests = testCases(fields, 'tests');
+  if (!samples.length && !tests.length) throw new Error('Добавьте хотя бы один тест.');
+  return command(`/api/problems/${encodeURIComponent(context.id)}/test-revisions`, { samples, tests }, 'Версия тестов сохранена');
+}
+
+function workTestRevision(fields, context) {
+  if (!context.id || !context.problemID) throw new Error('Работа или задача не найдена.');
+  return command(`/api/works/${encodeURIComponent(context.id)}/problem-revisions`, {
+    problem_id: context.problemID,
+    revision: positiveInteger(fields, 'revision', 'версия тестов'),
+  }, 'Версия применяется к новым посылкам', undefined, 'PATCH');
 }
 
 function submission(fields, context) {
@@ -143,6 +162,8 @@ const builders = {
   register,
   work,
   problem,
+  'test-revision': testRevision,
+  'work-test-revision': workTestRevision,
   submission,
   topic,
   review,

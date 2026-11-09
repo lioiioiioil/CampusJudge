@@ -29,14 +29,14 @@ export function newGroupModal() {
   };
 }
 
-export function testPair(kind, index = 0) {
+export function testPair(kind, index = 0, test = {}) {
   return `<div class="test-pair" data-test="${kind}">
     <div class="test-pair-head"><span>${kind === 'sample' ? 'Пример' : 'Скрытый тест'} ${index + 1}</span>
       ${index ? '<button type="button" class="text-button" data-action="remove-test">Убрать</button>' : ''}
     </div>
     <div class="form-grid">
-      ${field('Входные данные', `${kind}_input`, { type: 'textarea', placeholder: '2 3' })}
-      ${field('Ожидаемый вывод', `${kind}_output`, { type: 'textarea', placeholder: '5' })}
+      ${field('Входные данные', `${kind}_input`, { type: 'textarea', value: test.input, placeholder: '2 3' })}
+      ${field('Ожидаемый вывод', `${kind}_output`, { type: 'textarea', value: test.output, placeholder: '5' })}
     </div>
   </div>`;
 }
@@ -246,9 +246,12 @@ function submissionForm(problem, work, snapshot) {
 
 export function problemModal(id, workID, snapshot) {
   const { teacher, problem, work } = selectors(snapshot);
-  const task = problem(id);
+  const original = problem(id);
   const assignment = work(workID);
-  if (!task) return null;
+  if (!original) return null;
+  const revision = assignment?.problem_revisions?.[id] || 1;
+  const version = original.test_revisions?.find(item => item.number === revision);
+  const task = version ? { ...original, samples: version.samples, tests: version.tests } : original;
   const canSolve = assignment && workPhase(assignment) === 'open' && !teacher();
   return {
     title: task.title, subtitle: assignment?.title || 'Предпросмотр условия', wide: true,
@@ -259,8 +262,47 @@ export function problemModal(id, workID, snapshot) {
         </section>
         ${canSolve ? `<section class="solution-editor" aria-label="Отправка решения">${submissionForm(task, assignment, snapshot)}</section>` : ''}
       </div>
+      ${teacher() ? `<div class="detail-actions"><span class="muted">Версия тестов ${revision}</span>
+        ${button('new-test-revision', 'Новая версия тестов', 'plus', '', `data-id="${esc(id)}"`)}
+        ${assignment && original.test_revisions?.length ? button('work-test-revision', 'Версия для новых посылок', '', '', `data-id="${esc(id)}" data-work="${esc(workID)}"`) : ''}
+      </div>` : ''}
       ${teacher() && task.tests?.length ? `<hr><h3 class="statement-heading">Скрытые тесты
         <span class="count-label">Видны только вам</span></h3>${samplesHTML(task.tests, true)}` : ''}`,
+  };
+}
+
+export function testRevisionModal(problem) {
+  if (!problem) return null;
+  const base = problem.test_revisions?.at(-1) || problem;
+  const list = (kind, tests) => (tests?.length ? tests : [{}])
+    .map((test, index) => testPair(kind, index, test)).join('');
+  return {
+    title: 'Новая версия тестов', subtitle: problem.title, wide: true,
+    body: `<form data-form="test-revision" data-id="${esc(problem.id)}">
+      <div class="section-label">Примеры <button type="button" class="text-button" data-action="add-test" data-kind="sample">Добавить</button></div>
+      <div data-test-list="sample">${list('sample', base.samples)}</div>
+      <div class="section-label">Скрытые тесты <button type="button" class="text-button" data-action="add-test" data-kind="hidden">Добавить</button></div>
+      <div data-test-list="hidden">${list('hidden', base.tests)}</div>
+      ${formFooter('Сохранить версию')}
+    </form>`,
+  };
+}
+
+function revisionOptions(problem, selected) {
+  return [1, ...(problem.test_revisions || []).map(item => item.number)]
+    .map(number => `<option value="${esc(number)}"${number === selected ? ' selected' : ''}>Версия ${esc(number)}</option>`).join('');
+}
+
+export function workTestRevisionModal(problem, work) {
+  if (!problem || !work) return null;
+  return {
+    title: 'Версия для новых посылок', subtitle: `${work.title} · ${problem.title}`,
+    body: `<form data-form="work-test-revision" data-id="${esc(work.id)}" data-problem="${esc(problem.id)}">
+      <label class="form-field"><span class="form-label">Версия тестов</span>
+        <select class="input" name="revision">${revisionOptions(problem, work.problem_revisions?.[problem.id] || 1)}</select>
+      </label>
+      ${formFooter('Применить')}
+    </form>`,
   };
 }
 
