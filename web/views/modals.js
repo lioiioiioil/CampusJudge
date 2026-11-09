@@ -354,6 +354,8 @@ export function submissionModal(id, snapshot) {
       </section>
       ${teacher() ? `<section class="review-form"><h3>Проверка</h3>
         ${judgingResult(submission)}
+        ${snapshot.judging_mode === 'automatic' && submission.judging?.status === 'error' && !submission.reviewer_id
+          ? button('retry-judging', 'Повторить проверку', '', '', `data-id="${esc(submission.id)}"`) : ''}
         <form data-form="review" data-id="${esc(submission.id)}">
           <label class="form-field"><span class="form-label">Результат проверки</span>
             <select class="input" name="verdict" required>

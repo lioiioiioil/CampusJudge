@@ -24,6 +24,7 @@ JSON, один origin с интерфейсом. Изменяющие запро
   Открытая или закрытая работа и черновик с посылками дают `409`.
 - `POST /api/submissions` `{work_id,problem_id,language,source}` → посылка.
 - `PATCH /api/submissions/{id}` `{verdict,feedback}` → проверенная посылка.
+- `POST /api/submissions/{id}/retry` → `202` и та же посылка в очереди после сбоя исполнителя. Действие преподавателя сохраняет исходник, время отправки и версию тестов.
 - `GET /api/works/{id}/standings` → `{rows:[{user_id,name,solved,penalty,problems:{problem_id:{solved:boolean,attempts:number,minutes:number}}}]}`.
 
 Сущности определены в `internal/model/model.go`. Verdict: `pending`, `accepted`,

@@ -55,17 +55,8 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request, user model.User) er
 			if total == 0 {
 				return fail(http.StatusBadRequest, "У задачи пока нет тестов. Обратитесь к преподавателю")
 			}
-			queued, own := 0, 0
-			for _, previous := range s.Submissions {
-				if automaticPending(previous) {
-					queued++
-					if previous.UserID == user.ID {
-						own++
-					}
-				}
-			}
-			if queued >= 64 || own >= 3 {
-				return fail(http.StatusTooManyRequests, "Дождитесь завершения отправленных решений: очередь проверки заполнена")
+			if err := checkJudgeCapacity(s.Submissions, user.ID); err != nil {
+				return err
 			}
 			submission.Judging = &model.Judging{Status: "queued", TotalTests: total}
 		}

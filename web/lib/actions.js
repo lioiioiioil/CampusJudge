@@ -344,6 +344,13 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'work-test-revision': element => openModal(workTestRevisionModal(
       findByID(view.snapshot.problems, element.dataset.id), findByID(view.snapshot.works, element.dataset.work))),
     submission: element => openModal(submissionModal(element.dataset.id, view.snapshot)),
+    'retry-judging': async element => {
+      const generation = sessionGeneration;
+      await api.request(`/api/submissions/${encodeURIComponent(element.dataset.id)}/retry`, { method: 'POST', body: {} });
+      if (isCurrent(generation) && await refresh(undefined, generation, { quiet: true })) {
+        toast('Посылка снова в очереди');
+      }
+    },
     standings: element => showStandings(element.dataset.id),
     'publish-work': element => changeAccess(element.dataset.id, 'open'),
     'close-work': element => changeAccess(element.dataset.id, 'closed'),

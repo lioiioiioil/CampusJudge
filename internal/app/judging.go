@@ -13,6 +13,27 @@ import (
 	"github.com/lioiioiioil/CampusJudge/internal/model"
 )
 
+const (
+	maxActiveJudgments = 64
+	maxUserJudgments   = 3
+)
+
+func checkJudgeCapacity(submissions []model.Submission, userID string) error {
+	active, own := 0, 0
+	for _, submission := range submissions {
+		if automaticPending(submission) {
+			active++
+			if submission.UserID == userID {
+				own++
+			}
+		}
+	}
+	if active >= maxActiveJudgments || own >= maxUserJudgments {
+		return fail(429, "Очередь проверки заполнена. Дождитесь завершения активных посылок")
+	}
+	return nil
+}
+
 // StartJudge is called once before serving HTTP. A single consumer keeps the
 // resource budget predictable; accepted jobs live in the same durable JSON as
 // submissions, so a lost wake-up or restart cannot lose the queued work.
@@ -50,11 +71,11 @@ func prepareQueue(state *model.State, recoverRunning bool) bool {
 	}
 	for i := range state.Submissions {
 		sub := &state.Submissions[i]
-		if active >= 64 {
+		if active >= maxActiveJudgments {
 			break
 		}
 		if sub.Verdict != "pending" || sub.ReviewerID != "" || sub.Judging != nil ||
-			!automaticLanguage(sub.Language) || byUser[sub.UserID] >= 3 ||
+			!automaticLanguage(sub.Language) || byUser[sub.UserID] >= maxUserJudgments ||
 			len(sub.Source) > 128<<10 || strings.TrimSpace(sub.Source) == "" {
 			continue
 		}
