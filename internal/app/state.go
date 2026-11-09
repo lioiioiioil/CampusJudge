@@ -26,6 +26,13 @@ func (a *App) state(w http.ResponseWriter, r *http.Request, user model.User) err
 		JudgingMode: a.judgingMode(),
 		Demo:        snapshot.Demo,
 	}
+	if r.URL.Query().Get("summary") == "1" {
+		writeJSON(w, http.StatusOK, struct {
+			stateResponse
+			Submissions []submissionSummary `json:"submissions"`
+		}{response, summarizeSubmissions(response.Submissions)})
+		return nil
+	}
 	writeJSON(w, http.StatusOK, response)
 	return nil
 }

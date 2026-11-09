@@ -44,7 +44,9 @@ export function createAPI(fetchRequest = globalThis.fetch.bind(globalThis)) {
   return {
     request,
     session: () => request('/api/session'),
-    snapshot: () => request('/api/state'),
+    snapshot: () => request('/api/state?summary=1'),
+    submission: id => request(`/api/submissions/${encodeURIComponent(id)}`),
+    submissionStatuses: ids => request(`/api/submission-statuses?ids=${encodeURIComponent(ids.join(','))}`),
     logout: () => request('/api/logout', { method: 'POST', body: {} }),
   };
 }

@@ -8,7 +8,7 @@
  * @typedef {{id:string, title:string, statement:string, input_format:string, output_format:string, time_limit_ms:number, memory_limit_mb:number, samples:TestCase[], tests?:TestCase[]}} Problem
  * @typedef {{id:string, title:string, description:string, kind:'homework'|'contest', status:'draft'|'open'|'closed', topic_id:string, group_ids:string[], problem_ids:string[], starts_at?:string, ends_at?:string, created_at:string}} Work
  * @typedef {{status:'queued'|'running'|'done'|'error', passed_tests:number, total_tests:number, failed_test?:number, time_ms?:number, compile_output?:string, error?:string}} Judging
- * @typedef {{id:string, user_id:string, work_id:string, problem_id:string, language:string, source:string, verdict:string, feedback:string, created_at:string, judged_at?:string, judging?:Judging}} Submission
+ * @typedef {{id:string, user_id:string, work_id:string, problem_id:string, language:string, source?:string, verdict:string, feedback:string, created_at:string, judged_at?:string, judging?:Judging}} Submission
  * @typedef {{user:User, users:User[], groups:Group[], topics:Topic[], problems:Problem[], works:Work[], submissions:Submission[], languages:{id:string,name:string,automatic:boolean,template:string}[], judging_mode:'automatic'|'manual', demo:boolean}} Snapshot
  */
 export const pageNames = Object.freeze({

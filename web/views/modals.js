@@ -335,9 +335,8 @@ export function workTestRevisionModal(problem, work) {
   };
 }
 
-export function submissionModal(id, snapshot) {
+export function submissionModal(id, snapshot, submission = findByID(snapshot.submissions, id)) {
   const { teacher, user, work, problem, language } = selectors(snapshot);
-  const submission = findByID(snapshot.submissions, id);
   if (!submission) return null;
   const author = user(submission.user_id);
   const task = problem(submission.problem_id);

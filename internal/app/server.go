@@ -64,6 +64,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/works/{id}/problem-revisions", a.handle(a.setWorkTestRevision, teacherAccess))
 	mux.HandleFunc("PATCH /api/works/{id}/draft", a.handle(a.editWorkDraft, teacherAccess))
 	mux.HandleFunc("POST /api/submissions", a.handle(a.submit, signedInAccess))
+	mux.HandleFunc("GET /api/submissions/{id}", a.handle(a.submissionDetails, signedInAccess))
+	mux.HandleFunc("GET /api/submission-statuses", a.handle(a.submissionStatuses, signedInAccess))
 	mux.HandleFunc("PATCH /api/submissions/{id}", a.handle(a.review, teacherAccess))
 	mux.HandleFunc("POST /api/submissions/{id}/retry", a.handle(a.retryJudging, teacherAccess))
 	mux.HandleFunc("POST /api/submissions/{id}/rejudge", a.handle(a.rejudgeSubmission, teacherAccess))

@@ -20,8 +20,20 @@ export function submissionStatus(submission) {
   return submission.verdict === 'accepted' ? 'accepted' : 'failed';
 }
 
+function judgingActive(item) {
+  return ['queued', 'running'].includes(item.judging?.status);
+}
+
 export function hasActiveJudging(snapshot) {
-  return Boolean(snapshot?.submissions.some(item => ['queued', 'running'].includes(item.judging?.status)));
+  return Boolean(snapshot?.submissions.some(judgingActive));
+}
+
+export function activeJudgingIDs(snapshot, limit, afterID) {
+  const ids = snapshot.submissions.filter(judgingActive).map(item => item.id);
+  if (ids.length <= limit) return ids;
+  const start = ids.indexOf(afterID) + 1;
+  const end = start + limit;
+  return ids.slice(start, end).concat(ids.slice(0, Math.max(0, end - ids.length)));
 }
 
 export function judgingLabel(submission) {

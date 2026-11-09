@@ -1,6 +1,6 @@
 import { createEditor } from './editor.js';
 import { toggleTheme } from './theme.js';
-import { hasActiveJudging, patchJudgingResults } from './judging.js';
+import { activeJudgingIDs, hasActiveJudging, patchJudgingResults } from './judging.js';
 import { ApiError } from './api.js';
 import { esc, icon } from './format.js';
 import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from './state.js';
@@ -35,8 +35,12 @@ export function createController({ view, api, root, dialog, toastNode, render, r
   let toastTimer;
   let sessionGeneration = 0;
   let latestSnapshotRequest = 0;
+  let pendingSnapshot = 0;
+  let modalGeneration = 0;
   let sessionChange = Promise.resolve();
   let judgeTimer = null;
+  let activePoll = null;
+  let lastPolledID;
   let pollErrorShown = false;
   const isCurrent = generation => generation === sessionGeneration;
 
@@ -57,39 +61,74 @@ export function createController({ view, api, root, dialog, toastNode, render, r
   }
 
   function closeModal() {
+    modalGeneration++;
     const form = dialog.querySelector?.('form[data-form="submission"]');
     if (form && view.snapshot) editor.save(form, view.snapshot);
     dialog.close();
+    dialog.innerHTML = '';
   }
 
   function stopPolling() {
     clearTimeout(judgeTimer);
     judgeTimer = null;
+    activePoll = null;
+  }
+
+  async function pollJudging() {
+    judgeTimer = null;
+    const snapshot = view.snapshot;
+    const ids = activeJudgingIDs(snapshot, 64, lastPolledID);
+    lastPolledID = ids.at(-1);
+    const generation = sessionGeneration;
+    const request = Symbol('judging poll');
+    activePoll = request;
+    const ownsResult = () => isCurrent(generation) && activePoll === request;
+    try {
+      const result = await api.submissionStatuses(ids);
+      if (!ownsResult()) return;
+      if (result.user_id !== snapshot.user.id) {
+        await reloadIdentity();
+        return;
+      }
+      const updates = new Map(result.submissions.map(item => [item.id, item]));
+      if (ids.some(id => !updates.has(id))) {
+        // A work may have become inaccessible. Reload visibility, not just verdicts.
+        await refresh(undefined, generation, { quiet: true }).catch(error => reportError(error, generation));
+        return;
+      }
+      const requested = new Set(ids);
+      view.snapshot = { ...snapshot, submissions: snapshot.submissions.map(item =>
+        requested.has(item.id) ? updates.get(item.id) : item) };
+      pollErrorShown = false;
+      renderJudging();
+    } catch (error) {
+      if (!ownsResult()) return;
+      if (error instanceof ApiError && error.status === 401) reportError(error, generation);
+      else if (!pollErrorShown) {
+        pollErrorShown = true;
+        toast('Результаты пока не обновляются: нет связи с сервером.', true);
+      }
+    } finally {
+      if (ownsResult()) {
+        activePoll = null;
+        schedulePolling();
+      }
+    }
   }
 
   function schedulePolling() {
-    if (!hasActiveJudging(view.snapshot)) { stopPolling(); return; }
-    if (judgeTimer !== null) return;
-    const generation = sessionGeneration;
-    judgeTimer = setTimeout(async () => {
-      judgeTimer = null;
-      try {
-        await refresh(undefined, generation, { quiet: true });
-      } catch (error) {
-        if (!isCurrent(generation)) return;
-        if (error instanceof ApiError && error.status === 401) reportError(error, generation);
-        else if (!pollErrorShown) {
-          pollErrorShown = true;
-          toast('Результаты пока не обновляются: нет связи с сервером.', true);
-        }
-      } finally {
-        if (isCurrent(generation)) schedulePolling();
-      }
-    }, 1200);
+    if (pendingSnapshot || judgeTimer !== null || activePoll || !hasActiveJudging(view.snapshot)) return;
+    judgeTimer = setTimeout(pollJudging, 1200);
+  }
+
+  function renderJudging() {
+    renderContent();
+    patchJudgingResults(dialog, view.snapshot);
   }
 
   function openModal(spec) {
     if (!spec) return;
+    modalGeneration++;
     dialog.classList.toggle('wide', Boolean(spec.wide));
     dialog.innerHTML = `<div class="modal-header">
       <div><h2 id="modal-title">${esc(spec.title)}</h2>
@@ -106,14 +145,31 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     history.replaceState(null, '', `#${view.page}`);
   }
 
+  function clearIdentity() {
+    // Save the old editor under its original identity before replacing the session.
+    closeModal();
+    sessionGeneration++;
+    lastPolledID = undefined;
+    stopPolling();
+    resetSession(view);
+    updateHash();
+  }
+
+  async function reloadIdentity() {
+    clearIdentity();
+    render();
+    const generation = sessionGeneration;
+    try {
+      await refresh({ newSession: true }, generation);
+    } catch (error) {
+      reportError(error, generation);
+    }
+  }
+
   function reportError(error, generation) {
     if (!isCurrent(generation)) return;
     if (error instanceof ApiError && error.status === 401) {
-      sessionGeneration++;
-      stopPolling();
-      closeModal();
-      resetSession(view);
-      updateHash();
+      clearIdentity();
       render();
       toast('Сессия завершилась. Войдите снова.', true);
       return;
@@ -130,35 +186,33 @@ export function createController({ view, api, root, dialog, toastNode, render, r
 
   async function refresh(options, generation = sessionGeneration, { quiet = false } = {}) {
     const request = ++latestSnapshotRequest;
+    pendingSnapshot = request;
+    stopPolling();
     const ownsResult = () => isCurrent(generation) && request === latestSnapshotRequest;
     try {
       const snapshot = await api.snapshot();
       if (!ownsResult()) return false;
       if (view.snapshot && view.snapshot.user.id !== snapshot.user.id) {
-        // Another tab may replace the shared cookie. The old editor must leave
-        // under its original identity before any subsequent input can save a draft.
-        closeModal();
-        dialog.innerHTML = '';
-        sessionGeneration++;
-        stopPolling();
-        resetSession(view);
+        clearIdentity();
         acceptSnapshot(view, snapshot, { newSession: true });
-        updateHash();
         render();
-        schedulePolling();
         return false;
       }
       acceptSnapshot(view, snapshot, options);
+      const openSubmission = dialog.querySelector?.('[data-submission-verdict]')?.dataset.submissionVerdict;
+      if (openSubmission && !findByID(view.snapshot.submissions, openSubmission)) closeModal();
       pollErrorShown = false;
-      if (quiet) {
-        renderContent();
-        patchJudgingResults(dialog, view.snapshot);
-      } else render();
-      schedulePolling();
+      if (quiet) renderJudging();
+      else render();
       return true;
     } catch (error) {
       if (!ownsResult()) return false;
       throw error;
+    } finally {
+      if (pendingSnapshot === request) {
+        pendingSnapshot = 0;
+        schedulePolling();
+      }
     }
   }
 
@@ -279,6 +333,28 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     openModal(standingsModal(id, Array.isArray(result.rows) ? result.rows : [], view.snapshot));
   }
 
+  async function showSubmission(id) {
+    const generation = sessionGeneration;
+    const modal = ++modalGeneration;
+    const snapshot = view.snapshot;
+    const original = findByID(snapshot.submissions, id);
+    const ownsResult = () => isCurrent(generation) && modal === modalGeneration;
+    try {
+      const result = await api.submission(id);
+      if (!ownsResult()) return;
+      if (result.user_id !== snapshot.user.id) {
+        await reloadIdentity();
+        return;
+      }
+      const current = findByID(view.snapshot.submissions, id);
+      if (!current) return;
+      const details = current === original ? result.submission : { ...current, source: result.submission.source };
+      openModal(submissionModal(id, view.snapshot, details));
+    } catch (error) {
+      if (ownsResult()) reportError(error, generation);
+    }
+  }
+
   async function copyInvite(id) {
     const generation = sessionGeneration;
     const code = findByID(view.snapshot.groups, id)?.invite_code;
@@ -317,11 +393,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     refresh: async () => { if (await refresh()) toast('Данные обновлены'); },
     logout: async () => {
       // Invalidate reads at intent time: a response may arrive while logout is pending.
-      sessionGeneration++;
-      stopPolling();
-      closeModal();
-      resetSession(view);
-      updateHash();
+      clearIdentity();
       render();
       await changeSession(() => api.logout());
     },
@@ -351,7 +423,7 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'new-test-revision': element => openModal(testRevisionModal(findByID(view.snapshot.problems, element.dataset.id))),
     'work-test-revision': element => openModal(workTestRevisionModal(
       findByID(view.snapshot.problems, element.dataset.id), findByID(view.snapshot.works, element.dataset.work))),
-    submission: element => openModal(submissionModal(element.dataset.id, view.snapshot)),
+    submission: element => showSubmission(element.dataset.id),
     'retry-judging': async element => {
       const generation = sessionGeneration;
       await api.request(`/api/submissions/${encodeURIComponent(element.dataset.id)}/retry`, { method: 'POST', body: {} });
@@ -446,6 +518,10 @@ export function createController({ view, api, root, dialog, toastNode, render, r
         editor.save(field.closest('form'), view.snapshot);
       }
     });
+    dialog.addEventListener('cancel', event => {
+      event.preventDefault();
+      closeModal();
+    });
     dialog.addEventListener('click', event => {
       if (event.target !== dialog) return;
       const box = dialog.getBoundingClientRect();
@@ -454,22 +530,23 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     window.addEventListener('pagehide', () => {
       const form = dialog.querySelector?.('form[data-form="submission"]');
       if (form && view.snapshot) editor.save(form, view.snapshot);
+      modalGeneration++;
       stopPolling();
     });
     window.addEventListener('pageshow', async event => {
       if (!event.persisted || !view.snapshot) return;
       const generation = sessionGeneration;
-      stopPolling();
       try {
         await refresh(undefined, generation, { quiet: true });
       } catch (error) {
         reportError(error, generation);
-      } finally {
-        if (isCurrent(generation)) schedulePolling();
       }
     });
     window.addEventListener('hashchange', () => {
-      if (view.snapshot && navigate(view, location.hash.slice(1))) render();
+      if (view.snapshot && navigate(view, location.hash.slice(1))) {
+        modalGeneration++;
+        render();
+      }
     });
   }
 

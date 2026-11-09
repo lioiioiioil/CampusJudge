@@ -292,9 +292,19 @@ function judgedSnapshot(status, verdict = 'pending') {
   return result;
 }
 
+function statuses(snapshot) {
+  return { user_id: snapshot.user.id, submissions: snapshot.submissions };
+}
+
 test('automatic result polling patches results without replacing open editor/form DOM', async t => {
   let reads = 0;
-  const h = harness(t, { snapshot: async () => ++reads === 1 ? judgedSnapshot('queued') : judgedSnapshot('done', 'accepted') });
+  const h = harness(t, {
+    snapshot: async () => { reads++; return judgedSnapshot('queued'); },
+    submissionStatuses: async ids => {
+      assert.deepEqual(ids, ['s']);
+      return statuses(judgedSnapshot('done', 'accepted'));
+    },
+  });
   await h.click('refresh');
   h.dialog.open = true;
   h.dialog.innerHTML = 'unchanged editor and dirty form';
@@ -308,17 +318,17 @@ test('automatic result polling patches results without replacing open editor/for
   assert.equal(h.contentRenders(), 1);
   assert.match(result.innerHTML, /Зачтено/);
   assert.equal(h.pendingPolls(), 0);
+  assert.equal(reads, 1);
 });
 
 test('logout cancels polling and discards an already running poll response', async t => {
   const late = deferred();
-  let reads = 0;
-  const h = harness(t, { snapshot: () => ++reads === 1 ? Promise.resolve(judgedSnapshot('running')) : late.promise,
-    logout: async () => ({}) });
+  const h = harness(t, { snapshot: async () => judgedSnapshot('running'),
+    submissionStatuses: () => late.promise, logout: async () => ({}) });
   await h.click('refresh');
   const poll = h.firePoll();
   await h.click('logout');
-  late.resolve(judgedSnapshot('done', 'accepted'));
+  late.resolve(statuses(judgedSnapshot('done', 'accepted')));
   await poll;
   assert.equal(h.view.snapshot, null);
   assert.equal(h.pendingPolls(), 0);
@@ -339,7 +349,8 @@ test('submission keeps the editor open while queued result polling starts', asyn
 
 test('BFCache return quietly reloads and resumes an active judging queue', async t => {
   let reads = 0;
-  const h = harness(t, { snapshot: async () => ++reads < 3 ? judgedSnapshot('running') : judgedSnapshot('done', 'accepted') });
+  const h = harness(t, { snapshot: async () => { reads++; return judgedSnapshot('running'); },
+    submissionStatuses: async () => statuses(judgedSnapshot('done', 'accepted')) });
   await h.click('refresh');
   assert.equal(h.pendingPolls(), 1);
   h.fireWindow('pagehide');
@@ -351,6 +362,7 @@ test('BFCache return quietly reloads and resumes an active judging queue', async
   await h.firePoll();
   assert.equal(h.view.snapshot.submissions[0].verdict, 'accepted');
   assert.equal(h.pendingPolls(), 0);
+  assert.equal(reads, 2);
 });
 
 test('expired BFCache session returns to login instead of resuming old polling', async t => {
@@ -389,8 +401,8 @@ test('quiet identity change saves and closes the old editor before installing an
   const a = snapshot('teacher');
   a.submissions = [{ ...judgedSnapshot('running').submissions[0], user_id: 'teacher' }];
   let reads = 0;
-  const h = harness(t, { snapshot: async () => ++reads === 1 ? a : judgedSnapshot('running') },
-    { editor: createEditor({ drafts }) });
+  const h = harness(t, { snapshot: async () => ++reads === 1 ? a : judgedSnapshot('running'),
+    submissionStatuses: async () => statuses(judgedSnapshot('running')) }, { editor: createEditor({ drafts }) });
   await h.click('refresh');
   const oldForm = {
     dataset: { form: 'submission', work: 'w', problem: 'p', currentLanguage: 'cpp' },
@@ -409,7 +421,7 @@ test('quiet identity change saves and closes the old editor before installing an
   assert.equal(h.view.groupFilter, '');
   assert.equal(h.dialog.open, false);
   assert.equal(h.dialog.innerHTML, '');
-  assert.equal(h.renders.length, renders + 1, 'a changed identity needs a complete header/view render');
+  assert.deepEqual(h.renders.slice(renders), [null, 'student'], 'clear the old account before loading the new snapshot');
   const scope = { workID: 'w', problemID: 'p', language: 'cpp' };
   assert.equal(drafts.get({ ...scope, userID: 'teacher' }), 'private code belonging to A');
   assert.equal(drafts.get({ ...scope, userID: 'student' }), null);
@@ -424,4 +436,101 @@ test('explicit refresh also resets account-scoped navigation on a cookie identit
   assert.equal(h.view.page, 'overview');
   assert.equal(h.view.search, '');
   assert.equal(h.renders.at(-1), 'student');
+});
+
+
+test('a compact poll cannot replace a newer full snapshot or revert its verdict', async t => {
+  const late = deferred();
+  let reads = 0;
+  const h = harness(t, {
+    snapshot: async () => ++reads === 1 ? judgedSnapshot('running') : judgedSnapshot('done', 'wrong_answer'),
+    submissionStatuses: () => late.promise,
+  });
+  await h.click('refresh');
+  const poll = h.firePoll();
+  await h.click('refresh');
+  late.resolve(statuses(judgedSnapshot('done', 'accepted')));
+  await poll;
+  assert.equal(h.view.snapshot.submissions[0].verdict, 'wrong_answer');
+  assert.equal(h.contentRenders(), 0);
+  assert.equal(h.pendingPolls(), 0);
+});
+
+test('missing requested statuses reload visibility without importing unrelated results', async t => {
+  let reads = 0;
+  const h = harness(t, {
+    snapshot: async () => ++reads === 1 ? judgedSnapshot('running') : snapshot('student'),
+    submissionStatuses: async () => ({ user_id: 'student', submissions: [{ id: 'unrelated' }] }),
+  });
+  await h.click('refresh');
+  h.dialog.open = true;
+  h.dialog.innerHTML = 'source loaded before access changed';
+  h.dialog.querySelector = selector => selector === '[data-submission-verdict]'
+    ? { dataset: { submissionVerdict: 's' } } : null;
+  await h.firePoll();
+  assert.equal(reads, 2);
+  assert.equal(h.pendingPolls(), 0);
+  assert.equal(h.view.snapshot.submissions.length, 0);
+  assert.equal(h.dialog.open, false);
+  assert.equal(h.dialog.innerHTML, '');
+});
+
+
+test('submission details load source on demand without storing it in the snapshot', async t => {
+  const initial = judgedSnapshot('done', 'accepted');
+  const detail = deferred();
+  const h = harness(t, { snapshot: async () => initial, submission: id => {
+    assert.equal(id, 's');
+    return detail.promise;
+  } });
+  await h.click('refresh');
+  const opening = h.click('submission', { id: 's' });
+  assert.equal(h.dialog.open, false);
+  detail.resolve({ user_id: 'student', submission: { ...initial.submissions[0], source: 'private source' } });
+  await opening;
+  assert.equal(h.dialog.open, true);
+  assert.match(h.dialog.innerHTML, /private source/);
+  assert.equal(h.view.snapshot.submissions[0].source, undefined);
+});
+
+test('delayed source cannot replace a newer modal or reopen after logout', async t => {
+  const initial = judgedSnapshot('done', 'accepted');
+  const second = { ...initial.submissions[0], id: 'second' };
+  initial.submissions.push(second);
+  let delayed = deferred();
+  const h = harness(t, { snapshot: async () => initial, submission: async id => id === 's' ? delayed.promise : ({
+    user_id: 'student', submission: { ...second, source: 'newer source' },
+  }), logout: async () => ({}) });
+  await h.click('refresh');
+  const opening = h.click('submission', { id: 's' });
+  await h.click('submission', { id: 'second' });
+  delayed.resolve({ user_id: 'student', submission: { ...initial.submissions[0], source: 'stale source' } });
+  await opening;
+  assert.match(h.dialog.innerHTML, /newer source/);
+  assert.doesNotMatch(h.dialog.innerHTML, /stale source/);
+  delayed = deferred();
+  const reopened = h.click('submission', { id: 's' });
+  await h.click('logout');
+  delayed.resolve({ user_id: 'student', submission: { ...initial.submissions[0], source: 'stale source' } });
+  await reopened;
+  assert.equal(h.dialog.open, false);
+  assert.equal(h.dialog.innerHTML, '');
+});
+
+test('a queue larger than the status limit rotates through every active submission', async t => {
+  const initial = judgedSnapshot('running');
+  initial.submissions = Array.from({ length: 65 }, (_, i) => ({ ...initial.submissions[0], id: `s${i}` }));
+  const batches = [];
+  const h = harness(t, {
+    snapshot: async () => initial,
+    submissionStatuses: async ids => {
+      batches.push(ids);
+      return { user_id: 'student', submissions: initial.submissions.filter(item => ids.includes(item.id)) };
+    },
+  });
+  await h.click('refresh');
+  await h.firePoll();
+  await h.firePoll();
+  assert.deepEqual(batches.map(ids => ids.length), [64, 64]);
+  assert.equal(new Set(batches.flat()).size, 65);
 });

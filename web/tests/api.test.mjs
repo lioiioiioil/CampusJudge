@@ -26,3 +26,16 @@ test('lost mutation response is reported once and does not resubmit', async () =
   await assert.rejects(api.request('/api/submissions', { method: 'POST', body: {} }), /историю посылок/);
   assert.equal(attempts, 1);
 });
+
+
+test('submission reads request a compact snapshot, specific statuses and individual source', async () => {
+  const paths = [];
+  const api = createAPI(async path => {
+    paths.push(path);
+    return { ok: true, status: 200, json: async () => ({}) };
+  });
+  await api.snapshot();
+  await api.submissionStatuses(['a/b', 'c']);
+  await api.submission('a/b');
+  assert.deepEqual(paths, ['/api/state?summary=1', '/api/submission-statuses?ids=a%2Fb%2Cc', '/api/submissions/a%2Fb']);
+});

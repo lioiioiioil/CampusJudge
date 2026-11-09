@@ -57,7 +57,7 @@ func ClassroomFor(state model.State, user model.User, now time.Time) Classroom {
 		classroom.Problems = append(classroom.Problems, projectProblem(problem, teacher, revisions))
 	}
 	for _, submission := range state.Submissions {
-		if teacher || (submission.UserID == user.ID && allowedWorks[submission.WorkID]) {
+		if SubmissionVisible(submission, user, allowedWorks[submission.WorkID]) {
 			submission.JudgedAt = copyTimestamp(submission.JudgedAt)
 			submission.PastJudgments = slices.Clone(submission.PastJudgments)
 			if submission.Judging != nil {
@@ -110,6 +110,12 @@ func projectProblem(problem model.Problem, teacher bool, visible map[int]bool) m
 		problem.TestRevisions = append(problem.TestRevisions, revision)
 	}
 	return problem
+}
+
+// SubmissionVisible applies the same access policy to classroom and direct reads.
+// Callers supply work visibility computed for this viewer.
+func SubmissionVisible(submission model.Submission, user model.User, workVisible bool) bool {
+	return user.Role == "teacher" || (submission.UserID == user.ID && workVisible)
 }
 
 func copyTimestamp(timestamp *time.Time) *time.Time {
