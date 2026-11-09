@@ -7,6 +7,7 @@ import { acceptSnapshot, navigate, resetFilters, resetSession, findByID } from '
 import { buildFormCommand, sourceLimitBytes } from './forms.js';
 import { newTopicModal, newGroupModal, newProblemModal, newWorkModal, editWorkModal, testPair,
   topicModal, workModal, problemModal, submissionModal, standingsModal, testRevisionModal, workTestRevisionModal } from '../views/modals.js';
+import { gradebookModal } from '../views/gradebook.js';
 
 function readFields(form) {
   const values = new FormData(form);
@@ -337,6 +338,13 @@ export function createController({ view, api, root, dialog, toastNode, render, r
     'create-contest': () => createWork('contest'),
     work: element => openModal(workModal(element.dataset.id, view.snapshot)),
     'edit-draft': element => openModal(editWorkModal(element.dataset.id, view.snapshot)),
+    gradebook: element => openModal(gradebookModal(element.dataset.id, view.snapshot)),
+    'refresh-gradebook': async element => {
+      const generation = sessionGeneration;
+      if (await refresh(undefined, generation, { quiet: true }) && element.isConnected && dialog.open) {
+        openModal(gradebookModal(element.dataset.id, view.snapshot));
+      }
+    },
     'topic-detail': element => openModal(topicModal(element.dataset.id, view.snapshot)),
     problem: element => openModal(problemModal(element.dataset.id, element.dataset.work, view.snapshot)),
     'problem-preview': element => openModal(problemModal(element.dataset.id, undefined, view.snapshot)),

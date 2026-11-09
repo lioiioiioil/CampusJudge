@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createViewState, acceptSnapshot } from '../lib/state.js';
 import { workProgress } from '../lib/components.js';
 import { renderDashboard } from '../views/dashboard.js';
+import { gradebookModal } from '../views/gradebook.js';
 import { renderTopics, renderWorks, renderSubmissions } from '../views/pages.js';
 import { renderLayout } from '../views/layout.js';
 import { editWorkModal, newProblemModal, problemModal, submissionModal, standingsModal, workModal } from '../views/modals.js';
@@ -34,6 +35,65 @@ test('student pages hide management actions and use a distinct navigation', () =
   const layout = renderLayout(view.snapshot, view, '');
   assert.doesNotMatch(layout, /href="#students"/);
   assert.match(layout, /Ученик/);
+});
+
+test('gradebook only shows work participants and keeps a solved task during a rejudge', () => {
+  const view = fixture();
+  const pupil = fixture('student');
+  const { snapshot } = view;
+  snapshot.users.push(
+    { id: 'a', role: 'student', name: 'Анна <i>', username: 'anna', group_id: 'g' },
+    { id: 'b', role: 'student', name: 'Борис', username: 'boris', group_id: 'g' },
+    { id: 'outsider', role: 'student', name: 'Другая группа', group_id: 'other' },
+  );
+  snapshot.works[0].problem_ids.push('p2');
+  snapshot.problems.push({ id: 'p2', title: 'Другая <задача>' });
+  const attempt = snapshot.submissions[0];
+  snapshot.submissions.push(
+    { ...attempt, id: 'a-solved', user_id: 'a', verdict: 'accepted', judging: { status: 'queued' } },
+    { ...attempt, id: 'a-later-fail', user_id: 'a', verdict: 'wrong_answer', created_at: '2026-11-05T12:00:00Z' },
+    { ...attempt, id: 'b-error', user_id: 'b', verdict: 'judge_error', judging: { status: 'error' } },
+    { ...attempt, id: 'a-other-work', user_id: 'a', problem_id: 'p2', work_id: 'another', verdict: 'accepted' },
+    { ...attempt, id: 'outsider-attempt', user_id: 'outsider', verdict: 'accepted' },
+  );
+  assert.match(workModal('w', snapshot).body, /data-action="gradebook" data-id="w"/);
+  assert.doesNotMatch(workModal('w', pupil.snapshot).body, /data-action="gradebook"/);
+  assert.equal(gradebookModal('w', pupil.snapshot), null);
+  assert.equal(gradebookModal('missing', snapshot), null);
+  const html = gradebookModal('w', snapshot).body;
+  assert.match(html, /scope="row"[\s\S]*Анна &lt;i&gt;/);
+  assert.match(html, /scope="col">Другая &lt;задача&gt;/);
+  assert.match(html, /data-action="submission" data-id="a-solved"\s+title="Открыть посылку"><span class="badge green">Зачтено/);
+  assert.match(html, /data-action="submission" data-id="a-solved"\s+title="Открыть посылку"><span class="badge amber">В очереди/);
+  assert.match(html, /data-action="submission" data-id="b-error"\s+title="Открыть посылку"><span class="badge red">Ошибка проверки/);
+  assert.equal((html.match(/Нет попыток/g) || []).length, 2);
+  assert.doesNotMatch(html, /data-id="(?:s|a-later-fail|a-other-work|outsider-attempt)"|Другая группа/);
+});
+
+test('review dashboard and filters distinguish judge jobs, failures and teacher review', () => {
+  const view = fixture();
+  const { snapshot } = view;
+  const submission = snapshot.submissions[0];
+  snapshot.submissions = [
+    { ...submission, id: 'manual' },
+    { ...submission, id: 'queued', judging: { status: 'queued' } },
+    { ...submission, id: 'running', verdict: 'accepted', judging: { status: 'running' } },
+    { ...submission, id: 'judge_error', verdict: 'accepted', judging: { status: 'error' } },
+    { ...submission, id: 'accepted', verdict: 'accepted', judging: { status: 'done' } },
+    { ...submission, id: 'failed', verdict: 'wrong_answer', judging: { status: 'done' } },
+  ];
+  for (const item of snapshot.submissions) {
+    view.filter = item.id;
+    const html = renderSubmissions(snapshot, view);
+    const submissionLinks = [...html.matchAll(/data-action="submission" data-id="([^"]+)"/g)].map(match => match[1]);
+    assert.deepEqual(submissionLinks, [item.id]);
+  }
+  const dashboard = renderDashboard(snapshot);
+  for (const label of ['Ручная проверка', 'В очереди', 'Проверяется', 'Ошибка проверки']) {
+    assert.ok(dashboard.includes(`<dt>${label}</dt><dd>1</dd>`), label);
+  }
+  const attentionLinks = [...dashboard.matchAll(/data-action="submission" data-id="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(attentionLinks, ['manual', 'judge_error']);
 });
 
 test('conditions and source are escaped, and hidden tests are teacher-only', () => {

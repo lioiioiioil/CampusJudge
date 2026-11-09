@@ -467,6 +467,48 @@ tbody tr:hover {
   min-width: 650px;
 }
 
+.gradebook-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.gradebook-table th {
+  min-width: 140px;
+  max-width: 230px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gradebook-table tbody th {
+  background: transparent;
+  color: var(--ink);
+}
+
+.review-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.review-counts > div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.review-counts dt {
+  color: var(--muted);
+}
+
+.review-counts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .cell-subtitle {
   font-size: 12px;
   margin-top: 3px;

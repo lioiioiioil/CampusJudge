@@ -1,25 +1,38 @@
 import { date, esc } from './format.js';
 import { verdictNames, latestSubmission } from './state.js';
 
+export const submissionStatusNames = Object.freeze({
+  manual: 'Ручная проверка',
+  queued: 'В очереди',
+  running: 'Проверяется',
+  judge_error: verdictNames.judge_error,
+  accepted: verdictNames.accepted,
+  failed: 'Нужно доработать',
+});
+
+export const reviewStatuses = Object.freeze(['manual', 'queued', 'running', 'judge_error']);
+
+export function submissionStatus(submission) {
+  const status = submission.judging?.status;
+  if (status === 'queued' || status === 'running') return status;
+  if (status === 'error' || submission.verdict === 'judge_error') return 'judge_error';
+  if (submission.verdict === 'pending') return 'manual';
+  return submission.verdict === 'accepted' ? 'accepted' : 'failed';
+}
+
 export function hasActiveJudging(snapshot) {
   return Boolean(snapshot?.submissions.some(item => ['queued', 'running'].includes(item.judging?.status)));
 }
 
 export function judgingLabel(submission) {
-  if (submission.judging?.status === 'queued') return 'В очереди';
-  if (submission.judging?.status === 'running') return 'Проверяется';
-  if (submission.judging?.status === 'error') return verdictNames.judge_error;
-  return verdictNames[submission.verdict] || submission.verdict;
-}
-
-function judgeColor(submission) {
-  if (submission.judging?.status === 'error') return 'red';
-  if (submission.verdict === 'pending' || ['queued', 'running'].includes(submission.judging?.status)) return 'amber';
-  return submission.verdict === 'accepted' ? 'green' : 'red';
+  const status = submissionStatus(submission);
+  return status === 'failed' ? verdictNames[submission.verdict] || submission.verdict : submissionStatusNames[status];
 }
 
 export function judgingBadge(submission) {
-  return `<span class="badge ${judgeColor(submission)}">${esc(judgingLabel(submission))}</span>`;
+  const status = submissionStatus(submission);
+  const color = status === 'accepted' ? 'green' : ['manual', 'queued', 'running'].includes(status) ? 'amber' : 'red';
+  return `<span class="badge ${color}">${esc(judgingLabel(submission))}</span>`;
 }
 
 export function canRetryJudging(submission) {
@@ -33,7 +46,6 @@ export function canRejudge(submission) {
 
 export function judgingBody(submission) {
   const judging = submission.judging;
-  const color = judgeColor(submission);
   const active = ['queued', 'running'].includes(judging?.status);
   const details = [];
   const revision = submission.test_revision || 1;
@@ -45,7 +57,7 @@ export function judgingBody(submission) {
   }
   if (Number.isInteger(judging?.failed_test) && judging.failed_test > 0) details.push(`Тест: ${judging.failed_test}`);
   if (!active && Number.isFinite(judging?.time_ms)) details.push(`Время: ${judging.time_ms} мс`);
-  return `<div class="judge-result-heading"><strong class="badge ${color}">${esc(judgingLabel(submission))}</strong>
+  return `<div class="judge-result-heading">${judgingBadge(submission)}
       <span class="muted small-copy">${esc(submission.language)}</span>
     </div>
     ${(active || judging?.status === 'error') && effective

@@ -1,6 +1,7 @@
 import { esc, icon, plural, safeLesson } from '../lib/format.js';
 import { selectors, findByID, workPhase, matchesSearch } from '../lib/state.js';
 import { pageHeading, button, empty, workTable, submissionsTable } from '../lib/components.js';
+import { submissionStatus, submissionStatusNames } from '../lib/judging.js';
 
 function filterTabs(options, selected) {
   return `<div class="tabs">${options.map(([value, label]) => `
@@ -90,11 +91,10 @@ export function renderSubmissions(snapshot, view) {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .filter(item => matchesSearch(`${problem(item.problem_id)?.title} ${work(item.work_id)?.title} ${user(item.user_id).name}`, view.search));
   if (view.filter !== 'all') {
-    submissions = submissions.filter(item => view.filter === 'failed'
-      ? !['accepted', 'pending'].includes(item.verdict) : item.verdict === view.filter);
+    submissions = submissions.filter(item => submissionStatus(item) === view.filter);
   }
   if (view.groupFilter) submissions = submissions.filter(item => user(item.user_id).group_id === view.groupFilter);
-  const filters = [['all', 'Все посылки'], ['pending', 'На проверке'], ['accepted', 'Зачтено'], ['failed', 'Нужно доработать']];
+  const filters = [['all', 'Все посылки'], ...Object.entries(submissionStatusNames)];
   return `${pageHeading(teacher() ? 'Посылки учеников' : 'Мои посылки', teacher()
     ? 'Исходный код, результаты и комментарии к решениям.'
     : 'История ваших решений и комментарии преподавателя.')}
@@ -132,11 +132,11 @@ function studentsTable(students, snapshot) {
       <td><div class="cell-title">${esc(user.name)}</div><div class="cell-subtitle">${esc(user.username)}</div></td>
       <td class="muted">${esc(findByID(snapshot.groups, user.group_id)?.name || '—')}</td>
       <td>${submissions.length}</td><td>${solved}</td>
-      <td>${submissions.filter(item => item.verdict === 'pending').length}</td>
+      <td>${submissions.filter(item => submissionStatus(item) === 'manual').length}</td>
     </tr>`;
   }).join('');
   return `<div class="table-scroll"><table>
-    <thead><tr><th>Ученик</th><th>Группа</th><th>Посылки</th><th>Решено задач</th><th>На проверке</th></tr></thead>
+    <thead><tr><th>Ученик</th><th>Группа</th><th>Посылки</th><th>Решено задач</th><th>Ручная проверка</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }

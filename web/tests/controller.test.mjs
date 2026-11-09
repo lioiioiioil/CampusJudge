@@ -60,8 +60,8 @@ function harness(t, api, { authenticated = true, editor } = {}) {
   const controller = createController({ view, api, root, dialog, toastNode: toast, editor,
     render() { renders.push(view.snapshot?.user.id || null); }, renderContent() { contentRenders++; } });
   controller.attach();
-  function click(action) {
-    const element = { dataset: { action }, disabled: false, isConnected: true };
+  function click(action, data = {}) {
+    const element = { dataset: { action, ...data }, disabled: false, isConnected: true };
     return listeners.click({ target: { closest: () => element }, preventDefault() {} });
   }
   function submit(name, values, context = {}, testRows = {}) {
@@ -107,6 +107,32 @@ test('saving a problem copy creates a new problem with original unchanged test b
     samples: [{ input: '\r\n2 3\r\n', output: '5\r\n' }],
     tests: [{ input: '', output: '' }, { input: '8 9', output: '17' }],
   } }]]);
+});
+
+test('refreshing a gradebook updates its results and respects a closed dialog', async t => {
+  const initial = snapshot();
+  initial.works.push({ id: 'w', title: 'Работа', group_ids: ['g'], problem_ids: ['p'] });
+  initial.problems.push({ id: 'p', title: 'Задача' });
+  initial.users.push({ id: 'student', role: 'student', group_id: 'g', name: 'Ученик' });
+  const updated = {
+    ...initial,
+    submissions: [{ id: 's', work_id: 'w', user_id: 'student', problem_id: 'p', verdict: 'accepted' }],
+  };
+  const lateRead = deferred();
+  let reads = 0;
+  const h = harness(t, { snapshot: () => ++reads === 1 ? Promise.resolve(updated) : lateRead.promise });
+  acceptSnapshot(h.view, initial);
+
+  await h.click('gradebook', { id: 'w' });
+  assert.match(h.dialog.innerHTML, /Нет попыток/);
+  await h.click('refresh-gradebook', { id: 'w' });
+  assert.match(h.dialog.innerHTML, /Зачтено/);
+
+  const refresh = h.click('refresh-gradebook', { id: 'w' });
+  await h.click('close-modal');
+  lateRead.resolve(initial);
+  await refresh;
+  assert.equal(h.dialog.open, false);
 });
 
 test('late refresh cannot restore a logged-out user or show a stale success toast', async t => {

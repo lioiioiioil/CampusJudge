@@ -199,6 +199,7 @@ export function workModal(id, snapshot) {
     ${!teacher() ? `<p class="help-text work-progress-note">Ваш прогресс: ${esc(progress.caption)}. Результаты появляются после проверки.</p>` : ''}
     <div class="detail-actions">
       ${editableDraft(item, snapshot) ? button('edit-draft', 'Редактировать', 'file', '', `data-id="${esc(item.id)}"`) : ''}
+      ${teacher() ? button('gradebook', 'Табель', 'grid', '', `data-id="${esc(item.id)}"`) : ''}
       ${item.kind === 'contest' ? button('standings', 'Таблица результатов', 'trophy', '', `data-id="${esc(item.id)}"`) : ''}
       ${teacher() ? item.status !== 'open'
         ? button('publish-work', 'Открыть доступ', 'check', 'primary', `data-id="${esc(item.id)}"`)
