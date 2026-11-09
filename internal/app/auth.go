@@ -40,8 +40,8 @@ func newSession(userID string, now time.Time) (string, model.Session) {
 	token := rand.Text()
 	return token, model.Session{TokenHash: tokenHash(token), UserID: userID, ExpiresAt: now.Add(24 * time.Hour)}
 }
-func setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 86400})
+func (a *App) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: a.secureSession(r), MaxAge: 86400})
 }
 func appendSession(s *model.State, session model.Session, now time.Time) {
 	active := make([]model.Session, 0, len(s.Sessions)+1)

@@ -8,9 +8,6 @@ import (
 )
 
 func (a *App) login(w http.ResponseWriter, r *http.Request, _ model.User) error {
-	if !a.allowAuth(r) {
-		return fail(429, "Слишком много попыток. Подождите минуту")
-	}
 	var in struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -19,8 +16,17 @@ func (a *App) login(w http.ResponseWriter, r *http.Request, _ model.User) error 
 		return err
 	}
 	username := strings.ToLower(strings.TrimSpace(in.Username))
-	if len(in.Password) > 128 {
+	if !usernameOK(username) || len(in.Password) > 128 {
 		return fail(401, "Неверный логин или пароль")
+	}
+	origin := a.requestOrigin(r)
+	refund, allowed := a.reserveAuth(
+		authBudget{key: "login-requests:" + origin, limit: loginOriginRequests},
+		authBudget{key: "login-origin:" + origin, limit: loginOriginBudget, refundOnSuccess: true},
+		authBudget{key: "login-account:" + username, limit: loginAccountBudget, refundOnSuccess: true},
+	)
+	if !allowed {
+		return fail(429, "Слишком много попыток. Подождите минуту")
 	}
 	var found model.User
 	for _, u := range a.store.Snapshot().Users {
@@ -32,17 +38,18 @@ func (a *App) login(w http.ResponseWriter, r *http.Request, _ model.User) error 
 	if found.ID == "" || !passwordMatches(found.PasswordHash, in.Password) {
 		return fail(401, "Неверный логин или пароль")
 	}
+	refund()
 	now := a.now()
 	token, session := newSession(found.ID, now)
 	if err := a.store.Update(func(s *model.State) error { appendSession(s, session, now); return nil }); err != nil {
 		return err
 	}
-	setSessionCookie(w, r, token)
+	a.setSessionCookie(w, r, token)
 	writeJSON(w, 200, map[string]any{"user": found.Public()})
 	return nil
 }
 func (a *App) register(w http.ResponseWriter, r *http.Request, _ model.User) error {
-	if !a.allowAuth(r) {
+	if _, allowed := a.reserveAuth(authBudget{key: "register-origin:" + a.requestOrigin(r), limit: registerOriginBudget}); !allowed {
 		return fail(429, "Слишком много попыток. Подождите минуту")
 	}
 	var in struct {
@@ -95,7 +102,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request, _ model.User) err
 	if err != nil {
 		return err
 	}
-	setSessionCookie(w, r, token)
+	a.setSessionCookie(w, r, token)
 	writeJSON(w, 201, map[string]any{"user": u.Public()})
 	return nil
 }
@@ -114,7 +121,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request, _ model.User) error
 	}); err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: a.secureSession(r)})
 	writeJSON(w, 200, map[string]bool{"ok": true})
 	return nil
 }

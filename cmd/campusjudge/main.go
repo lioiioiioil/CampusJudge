@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,18 +33,42 @@ func run() error {
 	demo := flag.Bool("demo", false, "use public teacher demo password on first initialization (loopback only)")
 	judging := flag.String("judge", "docker", "judging mode: docker or manual")
 	judgeImage := flag.String("judge-image", "campusjudge-runner:local", "locally built Docker runner image")
+	proxyList := flag.String("trusted-proxies", "", "comma-separated proxy CIDRs allowed to supply X-Forwarded-For and X-Forwarded-Proto")
 	flag.Parse()
+	trustedProxies, err := parseTrustedProxies(*proxyList)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serve(ctx, serverConfig{addr: *addr, dataPath: *path, demo: *demo, judging: *judging, judgeImage: *judgeImage})
+	return serve(ctx, serverConfig{
+		addr: *addr, dataPath: *path, demo: *demo, judging: *judging,
+		judgeImage: *judgeImage, trustedProxies: trustedProxies,
+	})
 }
 
 type serverConfig struct {
-	addr       string
-	dataPath   string
-	demo       bool
-	judging    string
-	judgeImage string
+	addr           string
+	dataPath       string
+	demo           bool
+	judging        string
+	judgeImage     string
+	trustedProxies []netip.Prefix
+}
+
+func parseTrustedProxies(value string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	var prefixes []netip.Prefix
+	for _, raw := range strings.Split(value, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
+		if err != nil || prefix.Bits() == 0 || prefix.Addr().Is4In6() {
+			return nil, fmt.Errorf("-trusted-proxies requires explicit IPv4 or IPv6 CIDRs, got %q", raw)
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
 
 func serve(ctx context.Context, config serverConfig) (err error) {
@@ -60,6 +86,9 @@ func serve(ctx context.Context, config serverConfig) (err error) {
 	}()
 	// A public demo password must not be exposed by accidentally changing -addr.
 	if config.demo || s.Snapshot().Demo {
+		if len(config.trustedProxies) > 0 {
+			return errors.New("trusted proxies require a non-demo state")
+		}
 		host, _, err := net.SplitHostPort(config.addr)
 		if err != nil {
 			return err
@@ -101,7 +130,7 @@ func serve(ctx context.Context, config serverConfig) (err error) {
 		fmt.Printf("Первый запуск CampusJudge\nЛогин преподавателя: %s\nПароль: %s\nКод тестовой группы: %s\nСохраните пароль: при следующем запуске он не выводится.\n", bootstrap.Username, bootstrap.Password, bootstrap.InviteCode)
 	}
 	mux := http.NewServeMux()
-	application := app.New(s)
+	application := app.New(s, config.trustedProxies...)
 	if runner != nil {
 		judgeCtx, cancel := context.WithCancel(ctx)
 		if err := application.StartJudge(judgeCtx, runner); err != nil {

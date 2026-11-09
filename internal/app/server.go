@@ -5,8 +5,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,17 +18,14 @@ import (
 )
 
 type App struct {
-	store     *store.Store
-	now       func() time.Time
-	rateMu    sync.Mutex
-	attempts  map[string]rateEntry
-	runner    judge.Runner
-	judgeWake chan struct{}
-	judgeDone chan struct{}
-}
-type rateEntry struct {
-	started time.Time
-	count   int
+	store          *store.Store
+	now            func() time.Time
+	rateMu         sync.Mutex
+	attempts       map[string]*rateEntry
+	trustedProxies []netip.Prefix
+	runner         judge.Runner
+	judgeWake      chan struct{}
+	judgeDone      chan struct{}
 }
 type apiError struct {
 	code    int
@@ -36,8 +34,11 @@ type apiError struct {
 
 func (e *apiError) Error() string         { return e.message }
 func fail(code int, message string) error { return &apiError{code, message} }
-func New(s *store.Store) *App {
-	return &App{store: s, now: time.Now, attempts: make(map[string]rateEntry)}
+func New(s *store.Store, trustedProxies ...netip.Prefix) *App {
+	return &App{
+		store: s, now: time.Now, attempts: make(map[string]*rateEntry),
+		trustedProxies: slices.Clone(trustedProxies),
+	}
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -138,30 +139,4 @@ func readJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		return fail(400, "Ожидался один объект JSON")
 	}
 	return nil
-}
-func (a *App) allowAuth(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	a.rateMu.Lock()
-	defer a.rateMu.Unlock()
-	now := a.now()
-	if len(a.attempts) > 10000 {
-		for k, v := range a.attempts {
-			if now.Sub(v.started) > time.Minute {
-				delete(a.attempts, k)
-			}
-		}
-		if len(a.attempts) > 10000 {
-			return false
-		}
-	}
-	entry := a.attempts[host]
-	if now.Sub(entry.started) > time.Minute {
-		entry = rateEntry{started: now}
-	}
-	entry.count++
-	a.attempts[host] = entry
-	return entry.count <= 12
 }
