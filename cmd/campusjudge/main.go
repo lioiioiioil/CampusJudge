@@ -29,12 +29,19 @@ func main() {
 }
 func run() error {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
-	path := flag.String("data", "data/state.json", "local JSON data file")
+	path := flag.String("data", "data/state.json", "local JSON data file (when CAMPUS_DATABASE_URL is unset)")
+	importJSON := flag.String("import-json", "", "import an existing JSON state into empty PostgreSQL storage, then exit")
 	demo := flag.Bool("demo", false, "use public teacher demo password on first initialization (loopback only)")
 	judging := flag.String("judge", "docker", "judging mode: docker or manual")
 	judgeImage := flag.String("judge-image", "campusjudge-runner:local", "locally built Docker runner image")
 	proxyList := flag.String("trusted-proxies", "", "comma-separated proxy CIDRs allowed to supply X-Forwarded-For and X-Forwarded-Proto")
 	flag.Parse()
+	dataExplicit := false
+	flag.Visit(func(option *flag.Flag) {
+		if option.Name == "data" {
+			dataExplicit = true
+		}
+	})
 	trustedProxies, err := parseTrustedProxies(*proxyList)
 	if err != nil {
 		return err
@@ -44,16 +51,38 @@ func run() error {
 	return serve(ctx, serverConfig{
 		addr: *addr, dataPath: *path, demo: *demo, judging: *judging,
 		judgeImage: *judgeImage, trustedProxies: trustedProxies,
+		databaseURL: os.Getenv("CAMPUS_DATABASE_URL"), importJSON: *importJSON,
+		dataExplicit: dataExplicit,
 	})
 }
 
 type serverConfig struct {
 	addr           string
 	dataPath       string
+	databaseURL    string
+	importJSON     string
+	dataExplicit   bool
 	demo           bool
 	judging        string
 	judgeImage     string
 	trustedProxies []netip.Prefix
+}
+
+func validateStorageConfig(config serverConfig) error {
+	if config.databaseURL != "" && config.dataExplicit {
+		return errors.New("-data selects JSON storage and cannot be used with CAMPUS_DATABASE_URL")
+	}
+	if config.importJSON != "" && config.databaseURL == "" {
+		return errors.New("-import-json requires CAMPUS_DATABASE_URL")
+	}
+	return nil
+}
+
+func openData(ctx context.Context, config serverConfig) (*store.Store, error) {
+	if config.databaseURL != "" {
+		return store.OpenPostgres(ctx, config.databaseURL)
+	}
+	return store.OpenExclusive(config.dataPath)
 }
 
 func parseTrustedProxies(value string) ([]netip.Prefix, error) {
@@ -72,10 +101,13 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 }
 
 func serve(ctx context.Context, config serverConfig) (err error) {
+	if err := validateStorageConfig(config); err != nil {
+		return err
+	}
 	if config.judging != "docker" && config.judging != "manual" {
 		return errors.New("-judge must be docker or manual")
 	}
-	s, err := store.OpenExclusive(config.dataPath)
+	s, err := openData(ctx, config)
 	if err != nil {
 		return fmt.Errorf("open data: %w", err)
 	}
@@ -84,6 +116,13 @@ func serve(ctx context.Context, config serverConfig) (err error) {
 			err = errors.Join(err, fmt.Errorf("release data ownership: %w", closeErr))
 		}
 	}()
+	if config.importJSON != "" {
+		if err := s.ImportJSON(config.importJSON); err != nil {
+			return fmt.Errorf("import JSON data: %w", err)
+		}
+		slog.Info("CampusJudge JSON data imported into PostgreSQL")
+		return nil
+	}
 	// A public demo password must not be exposed by accidentally changing -addr.
 	if config.demo || s.Snapshot().Demo {
 		if len(config.trustedProxies) > 0 {

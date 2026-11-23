@@ -4,6 +4,12 @@ JSON, один origin с интерфейсом. Изменяющие запро
 `X-Campus-Request: 1`. Ошибка: `{ "error": "Сообщение для пользователя" }`.
 Сессия в HttpOnly SameSite=Strict cookie; сервер определяет роль.
 
+Контракт HTTP общий для PostgreSQL и JSON. Успешный изменяющий запрос означает
+подтверждённую запись в выбранное хранилище. При ошибке БД возвращается ошибка
+сохранения; запрос не переключается на JSON. В PostgreSQL временные отметки
+нормализуются к UTC с микросекундной точностью. Настройка и импорт выполняются
+через CLI и описаны в [PostgreSQL](postgresql.md).
+
 - `GET /api/session` → `{user: PublicUser|null}`.
 - `POST /api/login` `{username,password}` → `{user}`.
 - `POST /api/register` `{username,name,password,invite_code}` → `{user}`.

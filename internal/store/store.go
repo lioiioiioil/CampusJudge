@@ -1,4 +1,4 @@
-// Package store provides transactional JSON-file storage for one server process.
+// Package store provides transactional classroom storage for one server process.
 package store
 
 import (
@@ -17,12 +17,19 @@ import (
 
 const currentVersion = 1
 
+type stateBackend interface {
+	// Save owns a private candidate and may canonicalize values before committing.
+	Save(*model.State) error
+	Close() error
+}
+
 type Store struct {
-	mu     sync.RWMutex
-	path   string
-	state  model.State
-	owner  *os.File
-	closed bool
+	mu      sync.RWMutex
+	path    string
+	state   model.State
+	owner   *os.File
+	closed  bool
+	backend stateBackend
 }
 
 // Open reads an existing state file or prepares an empty state if it is missing.
@@ -99,14 +106,17 @@ func (s *Store) Update(fn func(*model.State) error) error {
 	// The callback may retain its input. Keep that input separate from the
 	// committed state so later caller mutations cannot bypass persistence.
 	committed := clone(candidate)
-	if err := s.persist(committed); err != nil {
+	if err := s.persist(&committed); err != nil {
 		return err
 	}
 	s.state = committed
 	return nil
 }
 
-func (s *Store) persist(state model.State) error {
+func (s *Store) persist(state *model.State) error {
+	if s.backend != nil {
+		return s.backend.Save(state)
+	}
 	directory := filepath.Dir(s.path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create state directory: %w", err)

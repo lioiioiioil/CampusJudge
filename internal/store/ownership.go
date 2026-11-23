@@ -75,8 +75,12 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
-	if s.owner == nil {
-		return nil
+	var err error
+	if s.backend != nil {
+		err = s.backend.Close()
 	}
-	return s.owner.Close()
+	if s.owner != nil {
+		err = errors.Join(err, s.owner.Close())
+	}
+	return err
 }
