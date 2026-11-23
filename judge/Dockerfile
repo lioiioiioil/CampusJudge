@@ -1,12 +1,14 @@
 # Build from repository root:
 # docker build -t campusjudge-runner:local -f judge/Dockerfile .
-FROM golang:1.25-bookworm AS supervisor
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS supervisor
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /build
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY internal/judge/protocol ./internal/judge/protocol
 COPY internal/judge/sandbox ./internal/judge/sandbox
 RUN CGO_ENABLED=0 go test ./internal/judge/protocol ./internal/judge/sandbox \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /sandbox ./internal/judge/sandbox
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /sandbox ./internal/judge/sandbox
 
 FROM debian:bookworm-slim
 RUN apt-get update \

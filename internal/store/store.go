@@ -2,6 +2,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,31 @@ type stateBackend interface {
 	// Save owns a private candidate and may canonicalize values before committing.
 	Save(*model.State) error
 	Close() error
+	Check(context.Context) error
+	Failure() <-chan error
+}
+
+// Failure reports loss of exclusive database ownership. File storage has no
+// network connection to monitor and returns a nil channel.
+func (s *Store) Failure() <-chan error {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.Failure()
+}
+
+// Check shares the same lock as writes: pgx connections are not safe for
+// concurrent operations, including health probes during an active transaction.
+func (s *Store) Check(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("state store is closed")
+	}
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.Check(ctx)
 }
 
 type Store struct {

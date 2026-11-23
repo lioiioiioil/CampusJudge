@@ -1,0 +1,70 @@
+name: campusjudge-server
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: ${CAMPUS_POSTGRES_IMAGE:-postgres:17-alpine}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: campusjudge
+      POSTGRES_USER: campusjudge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./init-env.sh first}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 45s
+    logging: *logging
+
+  app:
+    image: ${CAMPUS_APP_IMAGE:-campusjudge:local}
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    environment:
+      CAMPUS_DATABASE_URL: postgresql://campusjudge:${POSTGRES_PASSWORD:?Run ./init-env.sh first}@postgres:5432/campusjudge?sslmode=disable
+      CAMPUS_TEACHER_PASSWORD: ${CAMPUS_TEACHER_PASSWORD:?Run ./init-env.sh first}
+    command:
+      - -addr
+      - 0.0.0.0:8080
+      - -judge
+      - docker
+      - -judge-image
+      - ${CAMPUS_RUNNER_IMAGE:-campusjudge-runner:local}
+      - -trusted-proxies
+      - ${CAMPUS_TRUSTED_PROXIES:-}
+    ports:
+      - "${CAMPUS_BIND_ADDRESS:-127.0.0.1}:${CAMPUS_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: ${CAMPUS_DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/campusjudge", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 45s
+    logging: *logging
+
+volumes:
+  postgres-data:
+    name: ${CAMPUS_VOLUME_NAME:-campusjudge-server-postgres}

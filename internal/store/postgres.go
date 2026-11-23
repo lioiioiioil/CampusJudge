@@ -24,9 +24,10 @@ const postgresOwnerLock int64 = 0x43414d5055534a
 var ErrDatabaseInUse = errors.New("PostgreSQL database is already in use by another CampusJudge instance")
 
 type postgresBackend struct {
-	conn   *pgx.Conn
-	rows   []postgresTable
-	failed bool
+	conn    *pgx.Conn
+	rows    []postgresTable
+	failed  bool
+	failure chan error
 }
 
 // OpenPostgres holds one session-level advisory lock for the lifetime of the
@@ -51,7 +52,7 @@ func OpenPostgres(ctx context.Context, dsn string) (_ *Store, err error) {
 	if err != nil {
 		return nil, postgresError("connect", err)
 	}
-	backend := &postgresBackend{conn: conn}
+	backend := &postgresBackend{conn: conn, failure: make(chan error, 1)}
 	defer func() {
 		if err != nil {
 			_ = backend.Close()
@@ -118,7 +119,12 @@ func (p *postgresBackend) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (p *postgresBackend) Save(state *model.State) error {
+func (p *postgresBackend) Save(state *model.State) (err error) {
+	defer func() {
+		if err != nil && (p.failed || p.conn.IsClosed()) {
+			p.reportFailure()
+		}
+	}()
 	if p.failed || p.conn.IsClosed() {
 		return errors.New("PostgreSQL connection lost; restart CampusJudge to reload committed data")
 	}
@@ -158,6 +164,38 @@ func (p *postgresBackend) Save(state *model.State) error {
 		return postgresError("commit state transaction", err)
 	}
 	p.rows = next
+	return nil
+}
+
+func (p *postgresBackend) Failure() <-chan error { return p.failure }
+
+func (p *postgresBackend) reportFailure() {
+	p.failed = true
+	select {
+	case p.failure <- errors.New("PostgreSQL connection lost; restart CampusJudge to reload committed data"):
+	default:
+	}
+}
+
+func (p *postgresBackend) Check(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if p.failed || p.conn.IsClosed() {
+		p.reportFailure()
+		return errors.New("PostgreSQL connection lost; restart CampusJudge to reload committed data")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := p.conn.Ping(probeCtx); err != nil {
+		// Shutdown cancellation is not a reason to report an unhealthy service.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		p.reportFailure()
+		_ = p.Close()
+		return postgresError("check connection", err)
+	}
 	return nil
 }
 

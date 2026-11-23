@@ -143,6 +143,14 @@ func TestPostgresRollbackDoesNotPublishPartialState(t *testing.T) {
 	if err == nil {
 		t.Fatal("duplicate username did not fail the database transaction")
 	}
+	if err := s.Check(context.Background()); err != nil {
+		t.Fatalf("constraint failure left an unusable connection: %v", err)
+	}
+	select {
+	case err := <-s.Failure():
+		t.Fatalf("ordinary transaction rejection reported fatal storage loss: %v", err)
+	default:
+	}
 	assertPostgresState(t, s.Snapshot(), want)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -296,6 +304,14 @@ func TestPostgresLostConnectionCannotOverwriteNewOwner(t *testing.T) {
 	staleWrite := func(state *model.State) error { state.Groups[0].Name = "Stale owner edit"; return nil }
 	if err := stale.Update(staleWrite); err == nil {
 		t.Fatal("disconnected owner accepted a write")
+	}
+	select {
+	case err := <-stale.Failure():
+		if err == nil {
+			t.Fatal("lost owner emitted an empty failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lost owner did not notify the service to restart")
 	}
 	assertPostgresState(t, stale.Snapshot(), want)
 	fresh := openPostgresStore(t, dsn)

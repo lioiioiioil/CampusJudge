@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -28,16 +29,30 @@ func main() {
 	}
 }
 func run() error {
-	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
-	path := flag.String("data", "data/state.json", "local JSON data file (when CAMPUS_DATABASE_URL is unset)")
-	importJSON := flag.String("import-json", "", "import an existing JSON state into empty PostgreSQL storage, then exit")
-	demo := flag.Bool("demo", false, "use public teacher demo password on first initialization (loopback only)")
-	judging := flag.String("judge", "docker", "judging mode: docker or manual")
-	judgeImage := flag.String("judge-image", "campusjudge-runner:local", "locally built Docker runner image")
-	proxyList := flag.String("trusted-proxies", "", "comma-separated proxy CIDRs allowed to supply X-Forwarded-For and X-Forwarded-Proto")
-	flag.Parse()
+	return runArgs(os.Args[1:])
+}
+
+func runArgs(args []string) error {
+	flags := flag.NewFlagSet("campusjudge", flag.ContinueOnError)
+	addr := flags.String("addr", "127.0.0.1:8080", "HTTP listen address")
+	path := flags.String("data", "data/state.json", "local JSON data file (when CAMPUS_DATABASE_URL is unset)")
+	importJSON := flags.String("import-json", "", "import an existing JSON state into empty PostgreSQL storage, then exit")
+	demo := flags.Bool("demo", false, "use public teacher demo password on first initialization (loopback only)")
+	judging := flags.String("judge", "docker", "judging mode: docker or manual")
+	judgeImage := flags.String("judge-image", "campusjudge-runner:local", "locally built Docker runner image")
+	proxyList := flags.String("trusted-proxies", "", "comma-separated proxy CIDRs allowed to supply X-Forwarded-For and X-Forwarded-Proto")
+	healthcheck := flags.Bool("healthcheck", false, "check the local HTTP server and exit without opening storage")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if *healthcheck {
+		return checkHealth(*addr)
+	}
 	dataExplicit := false
-	flag.Visit(func(option *flag.Flag) {
+	flags.Visit(func(option *flag.Flag) {
 		if option.Name == "data" {
 			dataExplicit = true
 		}
@@ -101,6 +116,8 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 }
 
 func serve(ctx context.Context, config serverConfig) (err error) {
+	ctx, cancelService := context.WithCancel(ctx)
+	defer cancelService()
 	if err := validateStorageConfig(config); err != nil {
 		return err
 	}
@@ -157,16 +174,17 @@ func serve(ctx context.Context, config serverConfig) (err error) {
 		}
 		runner = docker
 	}
+	teacherPassword := os.Getenv("CAMPUS_TEACHER_PASSWORD")
 	bootstrap, err := app.Initialize(s, app.BootstrapOptions{
 		Demo:            config.demo,
-		TeacherPassword: os.Getenv("CAMPUS_TEACHER_PASSWORD"),
+		TeacherPassword: teacherPassword,
 		Now:             time.Now(),
 	})
 	if err != nil {
 		return err
 	}
 	if bootstrap.Created {
-		fmt.Printf("Первый запуск CampusJudge\nЛогин преподавателя: %s\nПароль: %s\nКод тестовой группы: %s\nСохраните пароль: при следующем запуске он не выводится.\n", bootstrap.Username, bootstrap.Password, bootstrap.InviteCode)
+		printBootstrap(os.Stdout, bootstrap, teacherPassword == "" && !config.demo)
 	}
 	mux := http.NewServeMux()
 	application := app.New(s, config.trustedProxies...)
@@ -194,17 +212,58 @@ func serve(ctx context.Context, config serverConfig) (err error) {
 		MaxHeaderBytes:    16 << 10,
 	}
 	failure := make(chan error, 1)
+	if s.Failure() != nil {
+		go monitorStorage(ctx, s)
+	}
 	slog.Info("CampusJudge ready", "url", "http://"+listener.Addr().String())
 	go func() { failure <- server.Serve(listener) }()
 	select {
 	case err := <-failure:
+		cancelService()
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
+	case storageErr := <-s.Failure():
+		// The old snapshot cannot be reused after losing database ownership.
+		// Exit so the container's restart policy reloads committed state.
+		cancelService()
+		return errors.Join(storageErr, shutdownHTTP(server))
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return server.Shutdown(shutdownCtx)
+		return shutdownHTTP(server)
 	}
+}
+
+func monitorStorage(ctx context.Context, s *store.Store) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.Check(ctx); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func shutdownHTTP(server *http.Server) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		return errors.Join(err, server.Close())
+	}
+	return nil
+}
+
+func printBootstrap(output io.Writer, bootstrap app.Bootstrap, revealPassword bool) {
+	fmt.Fprintf(output, "Первый запуск CampusJudge\nЛогин преподавателя: %s\n", bootstrap.Username)
+	if revealPassword {
+		fmt.Fprintf(output, "Пароль: %s\nСохраните пароль: при следующем запуске он не выводится.\n", bootstrap.Password)
+	} else {
+		fmt.Fprintln(output, "Пароль задан при настройке и не выводится в журнал.")
+	}
+	fmt.Fprintf(output, "Код тестовой группы: %s\n", bootstrap.InviteCode)
 }
