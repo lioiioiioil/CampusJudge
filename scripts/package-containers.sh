@@ -86,7 +86,8 @@ docker image save --output "$bundle/images.tar" "$app_image" "$runner_image" "$p
     shasum -a 256 images.tar > SHA256SUMS
   fi
 )
-tar -czf "$work/$name.tar.gz" -C "$work" "$name"
+# BSD tar otherwise adds AppleDouble entries when the package is built on macOS.
+COPYFILE_DISABLE=1 tar -czf "$work/$name.tar.gz" -C "$work" "$name"
 mv "$work/$name.tar.gz" "$archive"
 (
   cd "$output"
